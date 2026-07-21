@@ -38,7 +38,7 @@ export interface Dataset {
   revenue_activity_daily?: { date: string; campaign_id: string; revenue_usd: number }[]
   // Ingestion audit: when each upstream source last landed rows
   sync_log?: { source: string; synced_at: string; rows_written: number; note: string }[]
-  // Product analytics facts (live Aego source only)
+  // Product analytics facts (live product event source only)
   product_daily?: { date: string; dau: number; new_users: number; sessions: number; level_starts: number; level_completes: number; ad_impressions: number; interstitials: number; avg_session_min: number }[]
   level_funnel?: { level: number; users_started: number; users_completed: number; attempts: number; avg_duration_s: number }[]
   retention_curve?: { age: number; eligible: number; retained: number }[]

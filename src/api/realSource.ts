@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // REAL DATA SOURCE — AppReel live connection.
-// Reads the canonical ar_* tables from Supabase (aego-analytics-staging).
+// Reads the canonical ar_* tables from Supabase.
 // The publishable key below is public-by-design (RLS allows SELECT only).
 //
 // CONNECTED:  Meta Ads (account "AppReel UTC" 780499204349049) — spend,

@@ -279,7 +279,7 @@ function productAgent(ctx: AgentContext, lq: string): CopilotAnswer {
   if (daily.length === 0) {
     return {
       agent: 'Product Agent',
-      claim: 'Product analytics are not available in this workspace — the live Aego event source is not connected.',
+      claim: 'Product analytics are not available in this workspace — no product event source is connected.',
       evidence: [],
       confidence: 'low',
       limitations: 'The simulation source has no in-game event grain; I will not invent product metrics.',
@@ -326,11 +326,11 @@ function productAgent(ctx: AgentContext, lq: string): CopilotAnswer {
       evidence: hotspots.map((h) => ({
         label: `Level ${h.level}`,
         value: `drop −${(h.drop * 100).toFixed(1)}% · completion ${(h.completion * 100).toFixed(0)}% · ${h.duration.toFixed(0)}s avg (median ${median.toFixed(0)}s)`,
-        source: 'Aego level events (all-time funnel)',
+        source: 'Product events (all-time funnel)',
       })),
       confidence: 'high',
       limitations: 'Funnel is all-time (all traffic mixes). Drop-off blends difficulty churn with natural session-end points — check solve time to tell them apart.',
-      next_action: 'Open Product → Difficulty hotspots; A/B a tuned version of the worst level via Aego remote config.',
+      next_action: 'Open Product → Difficulty hotspots and A/B a tuned version of the worst step.',
     }
   }
   if (askAds && formats.length > 0) {
@@ -343,7 +343,7 @@ function productAgent(ctx: AgentContext, lq: string): CopilotAnswer {
       evidence: formats.map((f) => ({
         label: f.f,
         value: `$${f.rev.toFixed(2)} rev · ${f.imps.toLocaleString()} imps · eCPM $${f.ecpm.toFixed(2)}`,
-        source: 'Aego ad revenue events by format',
+        source: 'Ad revenue events by format',
       })),
       confidence: 'high',
       limitations: 'eCPM varies by geo and network; format-level view blends them.',
@@ -356,9 +356,9 @@ function productAgent(ctx: AgentContext, lq: string): CopilotAnswer {
       `${adsPerDau.toFixed(1)} ad impressions per DAU. ` +
       (hotspots.length > 0 ? `Biggest churn wall: level ${hotspots[0].level} (−${(hotspots[0].drop * 100).toFixed(1)}%).` : ''),
     evidence: [
-      { label: 'DAU (7d avg)', value: String(Math.round(dau)), source: 'Aego snap_users_daily' },
-      { label: 'New-user share', value: `${(newShare * 100).toFixed(0)}%`, source: 'Aego snap_users_daily' },
-      { label: 'Ads / DAU', value: adsPerDau.toFixed(1), source: 'Aego ad events' },
+      { label: 'DAU (7d avg)', value: String(Math.round(dau)), source: 'Product event stream' },
+      { label: 'New-user share', value: `${(newShare * 100).toFixed(0)}%`, source: 'Product event stream' },
+      { label: 'Ads / DAU', value: adsPerDau.toFixed(1), source: 'Product event stream' },
       ...(hotspots[0] ? [{ label: `Worst level (${hotspots[0].level})`, value: `−${(hotspots[0].drop * 100).toFixed(1)}% drop`, source: 'Level funnel' }] : []),
     ],
     confidence: 'high',

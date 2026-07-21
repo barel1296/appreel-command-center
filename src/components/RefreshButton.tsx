@@ -11,10 +11,9 @@ import { useApp } from '@/state/store'
 const SOURCE_LABELS: Record<string, string> = {
   meta_ads: 'Meta Ads — spend',
   meta_ads_creative: 'Meta Ads — creatives',
-  appsflyer_raw_installs: 'AppsFlyer — attribution',
-  appsflyer_ad_revenue: 'AppsFlyer — ad revenue',
-  appsflyer_geo: 'AppsFlyer — geo',
-  aego_product: 'Aego — product events',
+  appsflyer: 'MMP / AppsFlyer — attribution',
+  product_analytics: 'Product event stream',
+  revenue_value: 'Purchase revenue value',
 }
 
 const STALE_HOURS = 26

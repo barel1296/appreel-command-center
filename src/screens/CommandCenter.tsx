@@ -66,8 +66,8 @@ export function CommandCenter() {
     (search === '' || r.campaign.name.toLowerCase().includes(search.toLowerCase()) || r.channelName.toLowerCase().includes(search.toLowerCase())),
   )
 
-  // Revenue by CALENDAR day. Live source when connected (Aego truth: all users,
-  // all days); otherwise derived from cohort curves (cohort_date + age = day).
+  // Revenue by CALENDAR day. Uses the revenue source when one is connected (all
+  // users, all days); otherwise derived from cohort curves (cohort_date + age).
   const calendarRevenue = useMemo(() => {
     const map = new Map<string, number>()
     if (ds.revenue_daily?.length) {
