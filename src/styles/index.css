@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply bg-surface-0 text-ink-hi font-sans text-sm;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 203, 0.18);
+    border-radius: 8px;
+    border: 2px solid #0b1020;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 203, 0.32);
+  }
+  *:focus-visible {
+    @apply outline-none ring-2 ring-brand-400 ring-offset-1 ring-offset-surface-0 rounded;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-1 border border-line rounded-xl shadow-card;
+  }
+  .card-hover {
+    @apply transition-colors duration-150 hover:border-line-strong hover:bg-surface-2 cursor-pointer;
+  }
+  .num {
+    @apply font-mono tabular-nums;
+  }
+  .label-2xs {
+    @apply text-2xs font-semibold uppercase tracking-wider text-ink-low;
+  }
+}
