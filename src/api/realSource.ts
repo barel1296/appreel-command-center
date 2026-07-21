@@ -3,6 +3,11 @@
 // Reads the canonical ar_* tables from Supabase.
 // The publishable key below is public-by-design (RLS allows SELECT only).
 //
+// AppReel is an INDEPENDENT workspace. The `ar_` prefix is the ownership
+// boundary: this app reads ar_* tables and nothing else, and no other product
+// writes to them. The database instance is shared for convenience only —
+// there is no relationship between AppReel and anything else hosted there.
+//
 // CONNECTED:  Meta Ads (account "AppReel UTC" 780499204349049) — spend,
 //             impressions, clicks, installs, purchase events, creatives.
 //
