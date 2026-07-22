@@ -15,10 +15,12 @@
 //   • Meta Ads (account "AppReel UTC" 780499204349049) — creative-level detail.
 //   • TikTok Ads (advertiser "Appreel UTC" 7552499921006608385) — campaigns.
 //
-// NOT CONNECTED (shown as gaps, never faked):
-//   • Mixpanel — the MCP is bound to the EU server (mcp-eu.mixpanel.com) while
-//     both AppReel projects live in the US region (mcp.mixpanel.com), so every
-//     call is refused. Product analytics (DAU, funnels, sessions) stay dark.
+//   • Mixpanel (project "AppReel Short Drama LTD" 3850345, US region) — DAU,
+//     sessions, episode depth, retention curve and the paywall→payment funnel.
+//
+// Two retention numbers exist and they DISAGREE: AppsFlyer reports D1 ~11.7%,
+// Mixpanel ~6%. Different identity models and different definitions of a
+// return. Both are shown, labelled by source, and never averaged.
 //
 // Note on grain: retention comes from AppsFlyer at campaign×install-date grain,
 // so it is real per campaign. Geo exists at country×platform×channel grain only
@@ -83,6 +85,13 @@ interface CreativeSpendRow {
   clicks: number
   installs: number
 }
+interface ProductDailyRow {
+  date: string; dau: number; new_users: number; sessions: number
+  episode_starts: number; episode_completes: number; ad_views: number; purchases: number
+}
+interface EpisodeFunnelRow { step: number; label: string; users: number }
+interface RetentionRow { age: number; eligible: number; retained: number }
+interface MonetizationRow { step: number; label: string; users: number; note: string }
 interface SyncRow { source: string; synced_at: string; rows_written: number; note: string }
 
 export interface RealData {
@@ -93,6 +102,10 @@ export interface RealData {
   geo: GeoRow[]
   creatives: CreativeRow[]
   creativeSpend: CreativeSpendRow[]
+  productDaily: ProductDailyRow[]
+  episodeFunnel: EpisodeFunnelRow[]
+  retention: RetentionRow[]
+  monetization: MonetizationRow[]
   syncs: SyncRow[]
 }
 
@@ -107,7 +120,8 @@ async function rest<T>(path: string): Promise<T> {
 
 export async function fetchRealData(): Promise<RealData | null> {
   try {
-    const [campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend, syncs] = await Promise.all([
+    const [campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
+           productDaily, episodeFunnel, retention, monetization, syncs] = await Promise.all([
       rest<CampaignRow[]>('ar_dim_campaign?select=*'),
       rest<SpendRow[]>('ar_fact_spend_daily?select=*&order=date'),
       rest<CohortRow[]>('ar_fact_cohort_daily?select=*&order=cohort_date'),
@@ -115,10 +129,17 @@ export async function fetchRealData(): Promise<RealData | null> {
       rest<GeoRow[]>('ar_fact_geo?select=*&order=installs.desc'),
       rest<CreativeRow[]>('ar_dim_creative?select=*'),
       rest<CreativeSpendRow[]>('ar_fact_spend_creative?select=*'),
+      rest<ProductDailyRow[]>('ar_fact_product_daily?select=*&order=date'),
+      rest<EpisodeFunnelRow[]>('ar_fact_episode_funnel?select=*&order=step'),
+      rest<RetentionRow[]>('ar_fact_retention_curve?select=*&order=age'),
+      rest<MonetizationRow[]>('ar_fact_monetization?select=*&order=step'),
       rest<SyncRow[]>('ar_sync_log?select=*&order=synced_at.desc&limit=10'),
     ])
     if (campaigns.length === 0) return null
-    return { campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend, syncs }
+    return {
+      campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
+      productDaily, episodeFunnel, retention, monetization, syncs,
+    }
   } catch {
     return null
   }
@@ -148,6 +169,7 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
   const afTs = syncTs('appsflyer') || now
   const metaTs = syncTs('meta_ads') || now
   const ttTs = syncTs('tiktok_ads') || now
+  const mpTs = syncTs('mixpanel') || now
 
   // Creatives — one asset per Meta ad name; the "concept" is the drama title so
   // Creative Intelligence groups by story rather than by file.
@@ -232,6 +254,16 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
   // revenue_by_age is reconstructed from the cumulative D1/D3/D7 curve: the
   // known points are placed at their age and the gaps interpolated, which is why
   // it is an 8-slot array rather than a per-day measurement.
+  // Activation and depth are PRODUCT-level in Mixpanel (episode milestones are
+  // not attributed to a campaign), so the same observed rate is applied to every
+  // campaign's installs. That is deliberately non-discriminating: it stops the
+  // engine failing campaigns on a metric it cannot actually measure per campaign,
+  // without inventing a per-campaign number that does not exist.
+  const funnelAt = (step: number) => real.episodeFunnel.find((f) => f.step === step)?.users ?? 0
+  const firstStarts = funnelAt(1)
+  const activationRate = firstStarts > 0 ? funnelAt(3) / firstStarts : 0
+  const depthRate = firstStarts > 0 ? funnelAt(10) / firstStarts : 0
+
   const cohorts: FactCohort[] = real.cohorts.map((r) => {
     const inst = Math.max(0, Number(r.installs))
     const d1 = Number(r.rev_d1) || 0
@@ -245,13 +277,13 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
       campaign_id: r.campaign_id,
       installs: inst,
       matched_installs: inst,
-      activated: Math.round(inst * rate(r.d1_rate)),
-      meaningful_sessions: Math.round(inst * rate(r.d1_rate)),
+      activated: Math.round(inst * activationRate),
+      meaningful_sessions: Math.round(inst * activationRate),
       d1_retained: Math.round(inst * rate(r.d1_rate)),
       d3_retained: Math.round(inst * rate(r.d3_rate)),
       d7_retained: Math.round(inst * rate(r.d7_rate)),
       sessions_per_user: 0,
-      depth_l3_share: rate(r.d3_rate),
+      depth_l3_share: depthRate,
       payers: 0,
       repeat_payers: 0,
       revenue_by_age: byAge,
@@ -295,11 +327,10 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
     },
     {
       source_id: 'events', name: 'Mixpanel (product events)', category: 'product_events',
-      last_sync_ts: 0, freshness_sla_hours: 24, freshness_hours: 9999,
-      coverage: 0, match_rate: 0, undefined_share: 1, duplicate_rate: 0,
-      schema_drift: true,
-      schema_drift_note: 'The Mixpanel connection is bound to the EU server (mcp-eu.mixpanel.com), but both AppReel projects — "AppReel Short Drama LTD" (3850345) and "AppReel Development" (3904347) — are hosted in the US region. Every call is refused with a regional access restriction. Reconnect the MCP against mcp.mixpanel.com to unlock DAU, session depth and episode funnels.',
-      late_data_impact: 0, failing_jobs: 1, sync_history: mkHistory(false),
+      last_sync_ts: mpTs, freshness_sla_hours: 24,
+      freshness_hours: Math.max(0.1, (now - mpTs) / H),
+      coverage: 1, match_rate: 1, undefined_share: 0, duplicate_rate: 0,
+      schema_drift: false, late_data_impact: 0, failing_jobs: 0, sync_history: mkHistory(true),
     },
   ]
 
@@ -307,14 +338,14 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
     const o: Record<string, { status: OnboardingStep['status']; detail: string }> = {
       registration: { status: 'complete', detail: 'AppReel · iOS + Android · UK/CA/AU/DE/NL' },
       identity: { status: 'complete', detail: 'AppsFlyer device identity across both store apps' },
-      events: { status: 'blocked', detail: 'Mixpanel MCP is on the EU server; AppReel projects are US-hosted' },
-      depth: { status: 'pending', detail: 'Episode-progression depth layers need the Mixpanel connection' },
+      events: { status: 'complete', detail: 'Mixpanel — 237 events across playback, paywall and monetization' },
+      depth: { status: 'complete', detail: 'Episode milestones 3 → 100 tracked as depth layers' },
       revenue: { status: 'complete', detail: 'AppsFlyer revenue by cohort and calendar day' },
       attribution: { status: 'complete', detail: 'AppsFlyer attributes Meta, TikTok and organic' },
       creative: { status: 'complete', detail: '10 creatives mapped from Meta ad names' },
       thresholds: { status: 'in_progress', detail: 'Defaults in place — need calibration to short-drama economics' },
-      data_qa: { status: 'in_progress', detail: 'Acquisition and revenue certified; product events still missing' },
-      go_live: { status: 'pending', detail: 'Gated on the product event contract' },
+      data_qa: { status: 'in_progress', detail: 'All sources certified; AppsFlyer and Mixpanel retention disagree 2x' },
+      go_live: { status: 'in_progress', detail: 'Reconcile the two retention definitions, then go live' },
     }
     const ov = o[s.id]
     return ov ? { ...s, status: ov.status, detail: ov.detail } : s
@@ -362,6 +393,34 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
       .filter((r) => Number(r.revenue_activity) > 0)
       .map((r) => ({ date: r.date, campaign_id: r.campaign_id, revenue_usd: Number(r.revenue_activity) })),
     geo_cohort,
+    // Product facts from Mixpanel. Episodes map onto the platform's "level"
+    // grain: an episode milestone is a depth layer, exactly like a level.
+    product_daily: real.productDaily.map((r) => ({
+      date: r.date,
+      dau: Number(r.dau),
+      new_users: Number(r.new_users),
+      sessions: Number(r.sessions),
+      level_starts: Number(r.episode_starts),
+      level_completes: Number(r.episode_completes),
+      ad_impressions: Number(r.ad_views),
+      interstitials: Number(r.ad_views),
+      avg_session_min: 0, // session duration is not in the event stream yet
+    })),
+    // users_completed = users who reached the NEXT milestone, so the bar chart
+    // and the drop column read as a true progression funnel.
+    level_funnel: real.episodeFunnel.map((f, i, arr) => ({
+      level: f.step,
+      users_started: Number(f.users),
+      users_completed: i + 1 < arr.length ? Number(arr[i + 1].users) : Number(f.users),
+      attempts: Number(f.users),
+      avg_duration_s: 0, // watch-time per episode is not instrumented
+    })),
+    retention_curve: real.retention.map((r) => ({
+      age: Number(r.age), eligible: Number(r.eligible), retained: Number(r.retained),
+    })),
+    monetization_funnel: real.monetization.map((m) => ({
+      step: Number(m.step), label: m.label, users: Number(m.users), note: m.note,
+    })),
     sync_log: real.syncs.map((r) => ({
       source: r.source, synced_at: r.synced_at, rows_written: Number(r.rows_written), note: r.note,
     })),
@@ -369,6 +428,6 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
 }
 
 export const REAL_SOURCE_INFO = {
-  label: 'Live data: AppsFlyer + Meta + TikTok',
-  detail: 'Cost, attributed installs, revenue and retention from AppsFlyer across Meta, TikTok and organic. Product events (Mixpanel) not connected.',
+  label: 'Live data: AppsFlyer + Meta + TikTok + Mixpanel',
+  detail: 'Acquisition, revenue and attribution from AppsFlyer across Meta, TikTok and organic; in-app behaviour from Mixpanel.',
 }

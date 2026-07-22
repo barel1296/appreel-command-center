@@ -73,18 +73,23 @@ export interface ConfigVersion {
   config: ProductConfig
 }
 
+// Seeded from AppReel's own observed medians (Jul 2026), NOT from mid-core game
+// benchmarks. Short-form drama retains and monetizes on a completely different
+// curve — the stock 32% D1 / 55% activation defaults would fail every campaign
+// by construction and make the engine useless. These are a starting point that
+// still needs business sign-off; they live in versioned config, not in code.
 export const DEFAULT_THRESHOLDS: Thresholds = {
-  target_cpi: 2.2,
-  max_cpi: 3.5,
+  target_cpi: 8.0,   // observed blended CPI is $8.25
+  max_cpi: 14.0,     // above this only the best-retaining geos are defensible
   min_ctr: 0.009,
   min_cvr: 0.1,
-  min_activation_rate: 0.55,
-  min_d1: 0.32,
-  min_d7: 0.1,
-  min_depth_l3_share: 0.25,
-  min_payer_rate: 0.015,
-  target_d7_roas: 0.14,
-  min_predicted_d30_roas: 0.55,
+  min_activation_rate: 0.30, // reaching episode 3: 553 of 813 first-starters
+  min_d1: 0.10,              // AppsFlyer D1 runs 11-16%; Mixpanel ~6%
+  min_d7: 0.02,
+  min_depth_l3_share: 0.05,
+  min_payer_rate: 0.003,     // 38 payers against ~1,100 installs
+  target_d7_roas: 0.05,
+  min_predicted_d30_roas: 0.25,
   max_top_payer_share: 0.4,
   fatigue_warn: 55,
   fatigue_critical: 75,

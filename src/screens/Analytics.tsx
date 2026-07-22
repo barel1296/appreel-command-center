@@ -408,16 +408,25 @@ export function Analytics() {
     rpi: number
   }
   const geoBreakdown: GeoBreakRow[] = useMemo(() => {
-    const rows = (ds.geo_daily ?? []).filter((g) =>
-      g.date >= cutoff && g.date <= cutTo &&
-      (campaignFilter === 'all' || g.campaign_id === campaignFilter ||
-        (campaignFilter === 'organic-unattributed' && g.campaign_id === 'organic')))
+    // Prefer the date-grained geo table; fall back to the geo cube, which is
+    // window-total and channel-keyed (AppsFlyer will not return cost per
+    // country per campaign per day). campaign_id there holds the CHANNEL.
+    const daily = ds.geo_daily ?? []
+    const rows = daily.length > 0
+      ? daily
+        .filter((g) => g.date >= cutoff && g.date <= cutTo &&
+          (campaignFilter === 'all' || g.campaign_id === campaignFilter))
+        .map((g) => ({ country: g.country, key: g.campaign_id, installs: g.installs, revenue: g.revenue_usd }))
+      : (ds.geo_cohort ?? [])
+        .filter((g) => campaignFilter === 'all' ||
+          g.campaign_id === (productCampaigns.find((c) => c.campaign_id === campaignFilter)?.channel_id ?? ''))
+        .map((g) => ({ country: g.country, key: g.campaign_id, installs: g.installs, revenue: g.ad_revenue + g.iap_revenue }))
     const byCountry = new Map<string, { installs: number; paid: number; revenue: number }>()
     for (const g of rows) {
       const e = byCountry.get(g.country) ?? { installs: 0, paid: 0, revenue: 0 }
       e.installs += g.installs
-      if (g.campaign_id !== 'organic') e.paid += g.installs
-      e.revenue += g.revenue_usd
+      if (g.key !== 'organic') e.paid += g.installs
+      e.revenue += g.revenue
       byCountry.set(g.country, e)
     }
     const total = sum([...byCountry.values()].map((e) => e.installs))
@@ -428,8 +437,8 @@ export function Analytics() {
       paidShare: safe(e.paid, e.installs),
       revenue: e.revenue,
       rpi: safe(e.revenue, e.installs),
-    })).sort((a, b) => b.installs - a.installs)
-  }, [ds, cutoff, cutTo, campaignFilter])
+    })).filter((r) => r.installs > 0 || r.revenue > 0).sort((a, b) => b.installs - a.installs)
+  }, [ds, cutoff, cutTo, campaignFilter, productCampaigns])
 
   const geoColumns: Column<GeoBreakRow>[] = [
     { key: 'country', header: 'Country', render: (r) => <span className="font-semibold">{r.country}</span>, sortValue: (r) => r.country },
@@ -447,7 +456,7 @@ export function Analytics() {
     { key: 'paid', header: <span className="inline-flex items-center gap-1">Paid share <HelpTip text="Share of this country's installs attributed to paid campaigns (vs organic/unattributed)." /></span>, align: 'right', hideBelow: 'sm', render: (r) => <span className="num">{fmtPct(r.paidShare, 0)}</span>, sortValue: (r) => r.paidShare },
     { key: 'revenue', header: 'Ad Revenue', align: 'right', render: (r) => <span className="num">{fmtMoney(r.revenue)}</span>, sortValue: (r) => r.revenue },
     {
-      key: 'rpi', header: <span className="inline-flex items-center gap-1">Rev / Install <HelpTip text="Observed attributed ad revenue ÷ installs. Countries acquired before Jul 13 under-state revenue (AppsFlyer ad-revenue ingestion started then)." /></span>,
+      key: 'rpi', header: <span className="inline-flex items-center gap-1">Rev / Install <HelpTip text="Observed revenue ÷ installs for the window. Geo is available at country × channel grain only, so this is a channel-level read, not campaign-level." /></span>,
       align: 'right',
       render: (r) => <span className={clsx('num font-semibold', r.rpi >= 0.15 ? 'text-ok-400' : r.rpi >= 0.05 ? 'text-warn-400' : 'text-ink-low')}>{fmtMoney(r.rpi, 2)}</span>,
       sortValue: (r) => r.rpi,
@@ -857,9 +866,7 @@ export function Analytics() {
               rowKey={(r) => r.country}
               defaultSort="installs"
               emptyTitle="No geo data"
-              emptyMessage={ds.geo_daily?.length
-                ? 'No installs in the selected window/campaign.'
-                : 'Geo facts come from the live AppsFlyer source — not available in simulation mode.'}
+              emptyMessage="No installs in the selected window or campaign."
             />
           ) : (
             <DataTable

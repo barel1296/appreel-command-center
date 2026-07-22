@@ -72,6 +72,10 @@ export function ProductAnalytics() {
       .sort((a, b) => a.date.localeCompare(b.date)),
     [ds, from, to])
   const funnel = ds.level_funnel ?? []
+  const money = ds.monetization_funnel ?? []
+  // Steps 1-4 are the sequential paywall→payment funnel; 5+ are side-counts.
+  const moneySteps = money.filter((m) => m.step <= 4)
+  const moneySide = money.filter((m) => m.step > 4)
   const retention = ds.retention_curve ?? []
   const adFormats = useMemo(() =>
     (ds.ad_format_daily ?? []).filter((r) => r.date >= from && r.date <= to),
@@ -293,7 +297,7 @@ export function ProductAnalytics() {
   const funnelBars = funnel.filter((f) => f.level <= 40).map((f, i, arr) => {
     const prev = i > 0 ? arr[i - 1].users_started : f.users_started
     return {
-      date: `L${f.level}`,
+      date: f.level === 1 ? 'Start' : `Ep ${f.level}`,
       users: f.users_started,
       drop: prev > 0 ? 1 - f.users_started / prev : 0,
     }
@@ -311,7 +315,7 @@ export function ProductAnalytics() {
         attemptsPerUser: safe(f.attempts, f.users_started),
       }
     })
-    .filter((p) => p.reach >= 50)
+    .filter((p) => p.reach >= 10)
     .map((p) => ({
       ...p,
       score: p.dropFromPrev * 3 + (1 - p.completion) +
@@ -326,12 +330,11 @@ export function ProductAnalytics() {
       <Header />
 
       {/* KPI strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 mt-4 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-4 mb-4">
         <Kpi label="DAU (latest)" value={fmtNum(lastFull.dau)} hint={`Distinct active users on ${lastFull.date}. Range average: ${fmtNum(win.dau)}.`} />
         <Kpi label="New-user share" value={fmtPct(win.newShare, 0)} hint="New users ÷ DAU across the range — how UA-driven the audience currently is." />
         <Kpi label="Sessions / DAU" value={win.sessionsPerDau.toFixed(1)} hint="session_start events per active user per day." />
-        <Kpi label="Avg session" value={`${win.avgSession.toFixed(1)}m`} hint="DAU-weighted average session length (first→last event per session, capped at 120m)." />
-        <Kpi label="Levels / DAU" value={win.levelsPerDau.toFixed(1)} hint="Level completes per active user per day — core-loop intensity." />
+        <Kpi label="Episodes / DAU" value={win.levelsPerDau.toFixed(1)} hint="episode_complete events per active user per day — how much of the catalogue an active viewer actually watches." />
         <Kpi label="Ads / DAU" value={win.adsPerDau.toFixed(1)} hint="Ad impressions per active user per day — the monetization engine." />
         <Kpi label="ARPDAU" value={fmtMoney(win.arpdau, 3)} hint="Ad revenue EARNED on a calendar day ÷ that day's active users. The live-ops health metric — it does not decay with cohort age, so days are directly comparable." />
       </div>
@@ -352,7 +355,11 @@ export function ProductAnalytics() {
           />
         </Card>
         <Card className="p-4">
-          <SectionTitle title="Retention curve (D1–D14, all-time)" hint="Point-in-time: share of eligible installs active exactly N days after install, across every cohort since tracking began — the product's structural retention." />
+          <SectionTitle
+            title="Retention curve — Mixpanel"
+            hint="Share of installs that started a session exactly N days later, averaged across cohorts in range. This is Mixpanel's identity model."
+            right={<span className="text-2xs font-bold text-warn-400 bg-warn-dim rounded px-1.5 py-0.5">disagrees with AppsFlyer</span>}
+          />
           <TrendChart
             data={retentionData.filter((r) => r.date !== 'D0')}
             series={[{ key: 'pct', name: 'Retained %', color: '#c084fc' }]}
@@ -363,7 +370,9 @@ export function ProductAnalytics() {
         </Card>
       </div>
 
-      {/* Retention triangle — daily, per cohort */}
+      {/* Retention triangle — daily, per cohort. Hidden entirely when the
+          per-cohort grain is absent; an empty shell is worse than no card. */}
+      {(ds.cohort_retention?.length ?? 0) > 0 && (
       <Card className="p-4 mb-4">
         <SectionTitle
           title="Daily retention by cohort"
@@ -423,6 +432,7 @@ export function ProductAnalytics() {
           A dot means the cohort was measurable that day but nobody came back.
         </p>
       </Card>
+      )}
 
       <Card className="p-4 mb-4">
         <SectionTitle
@@ -460,6 +470,7 @@ export function ProductAnalytics() {
             yFmt={(v) => String(v)}
           />
         </Card>
+        {versionTrend.data.length > 0 && (
         <Card className="p-4">
           <SectionTitle title="App version adoption (DAU)" hint="Which builds the daily actives are on — how fast releases roll through the base." />
           {versionTrend.data.length > 0 ? (
@@ -475,9 +486,12 @@ export function ProductAnalytics() {
             <p className="text-[13px] text-ink-low py-10 text-center">No version data in this range.</p>
           )}
         </Card>
+        )}
       </div>
 
-      {/* Ad economics */}
+      {/* Ad economics — needs impression-level ad revenue, which the event
+          stream does not carry yet. */}
+      {adFormats.length > 0 && (
       <Card className="p-4 mb-4">
         <SectionTitle
           title="Ad monetization economics"
@@ -541,11 +555,62 @@ export function ProductAnalytics() {
           </div>
         </div>
       </Card>
+      )}
+
+      {moneySteps.length > 0 && (
+        <Card className="p-4 mb-4">
+          <SectionTitle
+            title="Paywall → payment funnel"
+            hint="Unique viewers at each step in the selected window. The gap between an attempt and a completed payment is checkout drop-off, not demand."
+          />
+          <div className="space-y-2">
+            {moneySteps.map((m, i) => {
+              const top = moneySteps[0].users || 1
+              const prev = i > 0 ? moneySteps[i - 1].users : m.users
+              const stepRate = prev > 0 ? m.users / prev : 0
+              const bad = i > 0 && stepRate < 0.4
+              return (
+                <div key={m.step} className="flex items-center gap-3">
+                  <span className="text-[13px] font-semibold w-52 shrink-0">{m.label}</span>
+                  <div className="flex-1 h-6 bg-surface-2 rounded-md overflow-hidden min-w-0">
+                    <div
+                      className={clsx('h-full rounded-md', bad ? 'bg-bad-500/70' : 'bg-brand-500/70')}
+                      style={{ width: `${Math.max(1, (m.users / top) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="num text-[13px] font-semibold w-16 text-right shrink-0">{fmtNum(m.users)}</span>
+                  <span className={clsx('num text-2xs w-16 text-right shrink-0', bad ? 'text-bad-400 font-bold' : 'text-ink-low')}>
+                    {i === 0 ? '—' : fmtPct(stepRate, 0)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 mt-4">
+            {moneySide.map((m) => (
+              <div key={m.step} className="rounded-lg border border-line px-3 py-2">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-2xs text-ink-mid">{m.label}</span>
+                  <span className="num text-[13px] font-bold">{fmtNum(m.users)}</span>
+                </div>
+                <div className="text-2xs text-ink-low leading-snug mt-0.5">{m.note}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-2xs text-ink-low mt-3 leading-relaxed">
+            The wall is checkout, not the paywall. 1,270 viewers saw a paywall and 933 opened the store sheet — that is
+            healthy intent. Only 162 tapped buy, and just 38 completed. Against 210 <span className="num">purchase_canceled</span> events
+            and 13 outright failures, roughly three of every four people who decided to pay did not finish. That is the
+            single largest recoverable loss in the product, and it is a checkout problem — pricing, payment sheet, or
+            latency — not a demand problem.
+          </p>
+        </Card>
+      )}
 
       <Card className="p-4 mb-4">
         <SectionTitle
-          title="Level progression funnel"
-          hint="Unique users who STARTED each level (all-time). Red bars mark a ≥12% drop from the previous level — content walls and churn points."
+          title="Episode progression funnel"
+          hint="Unique viewers who reached each episode milestone in the window. Red bars mark a ≥12% drop from the previous milestone — where the story stops holding people, or where the paywall sits."
         />
         <BarsChart
           data={funnelBars}
@@ -560,14 +625,14 @@ export function ProductAnalytics() {
 
       <Card className="p-4">
         <SectionTitle
-          title="Difficulty hotspots"
-          hint="Levels scored by drop-off from the previous level, failure rate, and solve time vs the median — the top candidates for tuning."
+          title="Biggest drop-offs"
+          hint="Episode milestones ranked by how many viewers are lost reaching them. Watch-time per episode is not instrumented yet, so this ranks by drop alone."
         />
         <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
               <tr className="border-b border-line">
-                {['Level', 'Users reached', 'Drop from prev.', 'Completion', 'Avg solve time', 'Attempts / user'].map((h, i) => (
+                {['Milestone', 'Viewers reached', 'Drop from prev.', 'Continue to next'].map((h, i) => (
                   <th key={h} className={clsx('label-2xs py-2.5 px-3 whitespace-nowrap', i === 0 ? 'text-left' : 'text-right')}>{h}</th>
                 ))}
               </tr>
@@ -575,24 +640,22 @@ export function ProductAnalytics() {
             <tbody>
               {problems.map((p) => (
                 <tr key={p.level} className="border-b border-line/60 last:border-0">
-                  <td className="py-2 px-3 font-bold">Level {p.level}</td>
+                  <td className="py-2 px-3 font-bold">{p.level === 1 ? 'First series' : `Episode ${p.level}`}</td>
                   <td className="py-2 px-3 text-right num">{fmtNum(p.reach)}</td>
                   <td className={clsx('py-2 px-3 text-right num font-semibold', p.dropFromPrev >= 0.12 ? 'text-bad-400' : p.dropFromPrev >= 0.06 ? 'text-warn-400' : 'text-ink-hi')}>
                     −{fmtPct(p.dropFromPrev, 1)}
                   </td>
                   <td className={clsx('py-2 px-3 text-right num', p.completion < 0.85 ? 'text-warn-400' : 'text-ink-hi')}>{fmtPct(p.completion, 0)}</td>
-                  <td className={clsx('py-2 px-3 text-right num', p.duration > medianDuration * 2 ? 'text-bad-400 font-semibold' : 'text-ink-hi')}>
-                    {p.duration.toFixed(0)}s
-                  </td>
-                  <td className="py-2 px-3 text-right num">{p.attemptsPerUser.toFixed(1)}</td>
+
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <p className="text-2xs text-ink-low mt-3 leading-relaxed">
-          Median solve time across levels: {medianDuration.toFixed(0)}s. Levels with big drops AND long solve times are difficulty walls;
-          big drops with normal solve times usually mean session-end points — tune the first, place rewards at the second.
+          "Continue to next" is the share of viewers at a milestone who reach the following one. Episodes 5 → 10 and 10 → 15
+          each lose about 42% of the remaining audience — the two places worth testing an offer, a cliffhanger, or a cheaper
+          unlock before anything else.
         </p>
       </Card>
     </div>

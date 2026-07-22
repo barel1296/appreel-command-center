@@ -103,6 +103,29 @@ export function evaluateCampaign(ds: Dataset, campaignId: string, cfg: ProductCo
       ev('Blocked spend (window)', fmtMoney(m.spend), '—', 'neutral'),
     ]
   }
+  // ── Evidence floor (spec §16): a campaign that has not accrued the minimum
+  // installs OR spend cannot receive a Scale/Pause verdict. Without this a
+  // one-day-old campaign with 13 installs reads as "D1 0%" and gets paused for
+  // a number that simply has not been measured yet.
+  else if (m.installs < t.min_installs_for_decision && m.spend < t.min_spend_for_decision) {
+    type = 'investigate'
+    title = `Hold ${campaign.name} — not enough evidence to judge`
+    reason = `Only ${m.installs.toLocaleString()} installs and ${fmtMoney(m.spend)} spent, against decision floors of ` +
+      `${t.min_installs_for_decision.toLocaleString()} installs / ${fmtMoney(t.min_spend_for_decision)}. ` +
+      `Early metrics (D1 ${fmtPct(m.d1)}, CPI ${fmtMoney(m.cpi, 2)}) are directional only — the cohorts are too young or too small ` +
+      `to separate signal from noise, so no Scale or Pause verdict is issued.`
+    risk = 'low'
+    action = `Let it run to the evidence floor at the current budget, or stop it on a business call — not on these numbers.`
+    stop = `Re-evaluate automatically once installs pass ${t.min_installs_for_decision.toLocaleString()} or spend passes ${fmtMoney(t.min_spend_for_decision)}.`
+    impact = 'Prevents a premature decision on an immature cohort.'
+    priority = 35
+    monitorDays = 5
+    extraEvidence = [
+      ev('Installs', m.installs.toLocaleString(), `min ${t.min_installs_for_decision.toLocaleString()}`, 'warn'),
+      ev('Spend', fmtMoney(m.spend), `min ${fmtMoney(t.min_spend_for_decision)}`, 'warn'),
+      ev('Campaign age', `${m.age_days}d`, '—', 'neutral'),
+    ]
+  }
   // ── Severe quality failure → Pause / Reduce ───────────────────────────────
   else if (sl.quality === 'red' && sl.monetization !== 'green') {
     const failing = m.predicted_d30_roas.high < t.min_predicted_d30_roas
@@ -350,7 +373,15 @@ export function evaluateSocial(ds: Dataset, _cfg: ProductConfig): Recommendation
 
 export function runDecisionEngine(ds: Dataset, cfg: ProductConfig): Recommendation[] {
   const recs: Recommendation[] = []
-  for (const c of ds.campaigns.filter((c) => c.product_id === cfg.product_id)) {
+  // Only campaigns you can actually act on. Organic and other unbought traffic
+  // has no budget lever, so a Scale/Pause verdict on it is meaningless — it is
+  // reported in Analytics, never routed as a spend decision.
+  const paidChannels = new Set(ds.channels.filter((ch) => ch.kind === 'paid').map((ch) => ch.channel_id))
+  const buyable = ds.campaigns.filter((c) =>
+    c.product_id === cfg.product_id &&
+    paidChannels.has(c.channel_id) &&
+    ds.spend.some((s) => s.campaign_id === c.campaign_id && s.spend > 0))
+  for (const c of buyable) {
     const r = evaluateCampaign(ds, c.campaign_id, cfg)
     if (r) recs.push(r)
   }

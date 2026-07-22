@@ -48,6 +48,9 @@ export interface Dataset {
   geo_cohort?: { cohort_date: string; country: string; campaign_id: string; installs: number; spend: number; ad_revenue: number; iap_revenue: number; payers: number }[]
   geo_cohort_age?: { cohort_date: string; country: string; campaign_id: string; age: number; ad_revenue: number; iap_revenue: number }[]
   ad_format_daily?: { date: string; ad_format: string; impressions: number; revenue_usd: number }[]
+  // Paywall → payment funnel from the product event source. Steps 1-4 are the
+  // sequential funnel; the rest are named side-counts (cancels, failures).
+  monetization_funnel?: { step: number; label: string; users: number; note: string }[]
   version_daily?: { date: string; app_version: string; dau: number }[]
 }
 
