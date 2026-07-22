@@ -1,10 +1,28 @@
 // Global date-range control (topbar) — drives every analytic surface:
 // Command Center KPIs/charts, Analytics, and Product Analytics. Engine
 // windows (Doctor/Queue recommendations) stay on the managed config window.
+import { clsx } from 'clsx'
 import { CalendarDays, ChevronDown } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fmtDate, isoDaysAgo } from '@/lib/format'
 import { useApp } from '@/state/store'
+
+/** The window the warehouse actually holds. A picker that lets you choose
+ *  dates with no data behind them looks broken when nothing moves, so the
+ *  coverage is stated and any overrun is called out. */
+function useCoverage() {
+  const { dataset } = useApp()
+  return useMemo(() => {
+    const dates: string[] = []
+    for (const r of dataset?.spend ?? []) dates.push(r.date)
+    for (const r of dataset?.product_daily ?? []) dates.push(r.date)
+    for (const r of dataset?.series_daily ?? []) dates.push(r.date)
+    for (const r of dataset?.history_daily ?? []) dates.push(r.date)
+    if (dates.length === 0) return null
+    dates.sort()
+    return { from: dates[0], to: dates[dates.length - 1] }
+  }, [dataset])
+}
 
 const PRESETS = [
   { label: 'Last 7 days', days: 7 },
@@ -19,6 +37,8 @@ export function DateRangePicker() {
   const [draftFrom, setDraftFrom] = useState(dateRange.from)
   const [draftTo, setDraftTo] = useState(dateRange.to)
   const ref = useRef<HTMLDivElement>(null)
+  const coverage = useCoverage()
+  const overruns = !!coverage && (dateRange.from < coverage.from || dateRange.to > coverage.to)
 
   useEffect(() => {
     setDraftFrom(dateRange.from)
@@ -113,6 +133,13 @@ export function DateRangePicker() {
           <p className="text-2xs text-ink-low mt-2 leading-relaxed">
             Applies to KPIs, charts and analytics tables. Decision-engine windows stay on the managed config.
           </p>
+          {coverage && (
+            <p className={clsx('text-2xs mt-2 leading-relaxed px-1', overruns ? 'text-warn-400' : 'text-ink-low')}>
+              {overruns
+                ? `Data covers ${fmtDate(coverage.from)} – ${fmtDate(coverage.to)}. Your range extends beyond that, so widening it further will not change any number.`
+                : `Data covers ${fmtDate(coverage.from)} – ${fmtDate(coverage.to)}. Full campaign, creative and series detail exists from Jul 8; before that only account-level installs and cost.`}
+            </p>
+          )}
         </div>
       )}
     </div>

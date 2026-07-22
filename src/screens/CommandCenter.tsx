@@ -115,10 +115,18 @@ export function CommandCenter() {
     }
     const spendRows = ds.spend.filter((r) => keep(r.campaign_id))
     const cohortRows = ds.cohorts.filter((r) => keep(r.campaign_id))
+    // Account-level history extends spend and installs before the campaign
+    // window. Only added when no platform filter is on — history has no
+    // platform split, so blending it under an "iOS" label would be a lie.
+    const hist = app.platform === 'all' ? (ds.history_daily ?? []) : []
     const spendCur = sumBy(spendRows, (r) => (inCur(r.date) ? r.spend : 0))
+      + sumBy(hist, (r) => (inCur(r.date) ? r.cost : 0))
     const spendPrev = sumBy(spendRows, (r) => (inPrev(r.date) ? r.spend : 0))
+      + sumBy(hist, (r) => (inPrev(r.date) ? r.cost : 0))
     const instCur = sumBy(cohortRows, (r) => (inCur(r.cohort_date) ? r.installs : 0))
+      + sumBy(hist, (r) => (inCur(r.date) ? r.installs : 0))
     const instPrev = sumBy(cohortRows, (r) => (inPrev(r.cohort_date) ? r.installs : 0))
+      + sumBy(hist, (r) => (inPrev(r.date) ? r.installs : 0))
     const revEntries = [...calendarRevenue.entries()]
     const revCur = sumBy(revEntries, ([d, v]) => (inCur(d) ? v : 0))
     const revPrev = sumBy(revEntries, ([d, v]) => (inPrev(d) ? v : 0))
@@ -149,6 +157,9 @@ export function CommandCenter() {
   // purchase EVENTS through Meta but no revenue VALUE and no MMP/product feed,
   // so revenue and retention KPIs would render a misleading zero. When a source
   // is missing the strip falls back to what IS measured, and says why.
+  // True when the selected range reaches into the account-level history, where
+  // only installs and cost exist.
+  const usesHistory = (ds.history_daily ?? []).some((r) => r.date >= from && r.date <= to) && app.platform === 'all'
   const hasRevenue = kpis.revenue.v > 0 || (ds.revenue_daily?.length ?? 0) > 0
   const hasRetention = ds.cohorts.some((r) => r.d1_retained > 0)
   const mmpConnected = ds.cohorts.some((r) => r.matched_installs > 0)
@@ -161,6 +172,14 @@ export function CommandCenter() {
       if (app.platform === 'all') return true
       const p = platOf.get(cid)
       return !p || p === 'both' || p === app.platform
+    }
+    if (app.platform === 'all') {
+      for (const r of ds.history_daily ?? []) {
+        if (r.date < from || r.date > to) continue
+        const e = byDate.get(r.date) ?? { date: r.date, spend: 0, revenue: 0, installs: 0 }
+        e.spend += r.cost; e.installs += r.installs
+        byDate.set(r.date, e)
+      }
     }
     for (const r of ds.spend) {
       if (r.date < from || r.date > to || !keep(r.campaign_id)) continue
@@ -235,7 +254,15 @@ export function CommandCenter() {
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-4 mb-5">
-        <Kpi label="Spend" value={fmtMoney(kpis.spend.v)} delta={kpis.spend.d} hint="Total normalized spend across paid channels in the selected range vs the preceding equal period." />
+        <Kpi
+          label="Spend"
+          value={fmtMoney(kpis.spend.v)}
+          delta={kpis.spend.d}
+          hint={usesHistory
+            ? 'Total spend in range. Dates before Jul 8 come from account-level history — real AppsFlyer cost, but with no campaign, creative or country split behind it.'
+            : 'Total normalized spend across paid channels in the selected range vs the preceding equal period.'}
+          caveat={usesHistory ? 'incl. history' : undefined}
+        />
         <Kpi
           label="Installs"
           value={fmtNum(kpis.installs.v)}

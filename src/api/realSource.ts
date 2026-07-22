@@ -107,6 +107,7 @@ interface AdNetworkRow { network: string; impressions: number; revenue: number }
 interface SeriesEpisodeRow { series_name: string; episode: number; viewers: number }
 interface SeriesEpisodeDailyRow { series_name: string; episode: number; date: string; completions: number }
 interface SeriesDailyRow { series_name: string; date: string; starts: number; episode_completes: number }
+interface HistoryRow { date: string; installs: number; cost: number }
 interface RetGeoRow { country: string; installs: number; cost: number; revenue: number; d1: number | null; d3: number | null; d7: number | null }
 interface RetCreativeRow { creative: string; installs: number; cost: number; d1: number | null; d3: number | null; d7: number | null }
 interface SyncRow { source: string; synced_at: string; rows_written: number; note: string }
@@ -133,6 +134,7 @@ export interface RealData {
   platformDaily: PlatformDailyRow[]
   seriesEpisodeDaily: SeriesEpisodeDailyRow[]
   seriesDaily: SeriesDailyRow[]
+  history: HistoryRow[]
   syncs: SyncRow[]
 }
 
@@ -151,7 +153,7 @@ export async function fetchRealData(): Promise<RealData | null> {
            productDaily, episodeFunnel, retention, monetization,
            series, iap, coins, adNetwork,
            seriesEpisode, retGeo, retCreative, platformDaily,
-           seriesEpisodeDaily, seriesDaily, syncs] = await Promise.all([
+           seriesEpisodeDaily, seriesDaily, history, syncs] = await Promise.all([
       rest<CampaignRow[]>('ar_dim_campaign?select=*'),
       rest<SpendRow[]>('ar_fact_spend_daily?select=*&order=date'),
       rest<CohortRow[]>('ar_fact_cohort_daily?select=*&order=cohort_date'),
@@ -173,6 +175,7 @@ export async function fetchRealData(): Promise<RealData | null> {
       rest<PlatformDailyRow[]>('ar_fact_platform_daily?select=*&order=date'),
       rest<SeriesEpisodeDailyRow[]>('ar_fact_series_episode_daily?select=*&order=series_name,episode'),
       rest<SeriesDailyRow[]>('ar_fact_series_daily?select=*&order=date'),
+      rest<HistoryRow[]>('ar_fact_history_daily?select=*&order=date'),
       rest<SyncRow[]>('ar_sync_log?select=*&order=synced_at.desc&limit=10'),
     ])
     if (campaigns.length === 0) return null
@@ -180,7 +183,7 @@ export async function fetchRealData(): Promise<RealData | null> {
       campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
       productDaily, episodeFunnel, retention, monetization,
       series, iap, coins, adNetwork, seriesEpisode, retGeo, retCreative, platformDaily,
-      seriesEpisodeDaily, seriesDaily, syncs,
+      seriesEpisodeDaily, seriesDaily, history, syncs,
     }
   } catch {
     return null
@@ -486,6 +489,9 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
     })),
     series_episode_daily: real.seriesEpisodeDaily.map((r) => ({
       series_name: r.series_name, episode: Number(r.episode), date: r.date, completions: Number(r.completions),
+    })),
+    history_daily: real.history.map((r) => ({
+      date: r.date, installs: Number(r.installs), cost: Number(r.cost),
     })),
     series_daily: real.seriesDaily.map((r) => ({
       series_name: r.series_name, date: r.date,

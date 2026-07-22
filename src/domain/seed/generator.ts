@@ -72,6 +72,10 @@ export interface Dataset {
   // additive, so any date range sums correctly — unlike daily unique viewers.
   series_episode_daily?: { series_name: string; episode: number; date: string; completions: number }[]
   series_daily?: { series_name: string; date: string; starts: number; episode_completes: number }[]
+  // Account-level daily history before the campaign-grained window. Installs and
+  // cost only — no campaign, creative, series or retention split exists this far
+  // back, so it is kept separate and every surface that uses it says so.
+  history_daily?: { date: string; installs: number; cost: number }[]
   // Retention breakdowns. AppsFlyer is the ONLY source of install retention;
   // Mixpanel's curve is deliberately not used, so one number means one thing.
   retention_geo?: { country: string; installs: number; cost: number; revenue: number; d1: number | null; d3: number | null; d7: number | null }[]
