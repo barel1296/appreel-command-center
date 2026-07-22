@@ -7,7 +7,7 @@
 // simulated so loading states behave like production.
 // ─────────────────────────────────────────────────────────────────────────────
 import { generateDataset, type Dataset } from '@/domain/seed/generator'
-import { applyRealData, fetchRealData } from './realSource'
+import { applyRealData, fetchRealData, lastFetchError } from './realSource'
 import { runDecisionEngine } from '@/domain/decision/engine'
 import { deriveAlerts } from '@/domain/alerts/engine'
 import { defaultProductConfig, type ConfigVersion, type ProductConfig } from '@/domain/config'
@@ -49,11 +49,14 @@ export interface WorkspaceSnapshot {
   audit: AuditEvent[]
   currentUserId: string
   realConnected: boolean
+  /** Non-null when the live source was tried and failed. */
+  liveError: string | null
 }
 
 class SimulatedBackend {
   private dataset: Dataset | null = null
   private realConnected = false
+  private liveError: string | null = null
 
   private async ensureDataset(): Promise<Dataset> {
     if (!this.dataset) {
@@ -67,6 +70,7 @@ class SimulatedBackend {
       } else {
         this.dataset = sim
         this.realConnected = false
+        this.liveError = lastFetchError
       }
     }
     return this.dataset
@@ -124,6 +128,7 @@ class SimulatedBackend {
       audit,
       currentUserId: load<string>('currentUser', 'u-dana'),
       realConnected: this.realConnected,
+      liveError: this.liveError,
     }
   }
 

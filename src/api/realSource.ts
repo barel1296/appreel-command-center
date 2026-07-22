@@ -138,16 +138,37 @@ export interface RealData {
   syncs: SyncRow[]
 }
 
-async function rest<T>(path: string): Promise<T> {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-    signal: AbortSignal.timeout(8000),
-  })
-  if (!res.ok) throw new Error(`Supabase ${path}: HTTP ${res.status}`)
-  return res.json() as Promise<T>
+/** Why the explicit limit: PostgREST caps a request at 1,000 rows by default and
+ *  returns the truncated set with a 200, so a growing table silently loses its
+ *  tail. Why the generous timeout: this fires ~23 requests at once while the
+ *  page is still fetching its bundle, and browsers only open ~6 sockets per
+ *  host, so the last wave can legitimately take many seconds on a cold load. */
+const ROW_LIMIT = 20000
+const TIMEOUT_MS = 25000
+
+async function rest<T>(path: string, attempt = 0): Promise<T> {
+  const url = `${SUPABASE_URL}/rest/v1/${path}${path.includes('limit=') ? '' : `${path.includes('?') ? '&' : '?'}limit=${ROW_LIMIT}`}`
+  try {
+    const res = await fetch(url, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+    if (!res.ok) throw new Error(`Supabase ${path}: HTTP ${res.status}`)
+    return res.json() as Promise<T>
+  } catch (err) {
+    // One retry: a cold load that loses the socket race should not silently
+    // demote the whole workspace to simulation.
+    if (attempt === 0) return rest<T>(path, 1)
+    throw err
+  }
 }
 
+/** Set when the live source was reachable but something went wrong, so the UI
+ *  can say "live connection failed" instead of quietly showing simulation. */
+export let lastFetchError: string | null = null
+
 export async function fetchRealData(): Promise<RealData | null> {
+  lastFetchError = null
   try {
     const [campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
            productDaily, episodeFunnel, retention, monetization,

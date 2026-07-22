@@ -28,6 +28,7 @@ interface AppState {
   audit: AuditEvent[]
   currentUserId: string
   realConnected: boolean
+  liveError: string | null
   refreshing: boolean
   lastRefreshedAt: number | null
   dateRange: { from: string; to: string }
@@ -87,6 +88,7 @@ export const useApp = create<AppState>((set, get) => ({
   audit: [],
   currentUserId: 'u-dana',
   realConnected: false,
+  liveError: null,
   refreshing: false,
   lastRefreshedAt: null,
   dateRange: loadDateRange(),
@@ -121,6 +123,7 @@ export const useApp = create<AppState>((set, get) => ({
         audit: snap.audit,
         currentUserId: snap.currentUserId,
         realConnected: snap.realConnected,
+        liveError: snap.liveError,
         copilotMessages: loadCopilot(),
         metricsCache: new Map(),
       })
@@ -156,6 +159,7 @@ export const useApp = create<AppState>((set, get) => ({
         alerts: snap.alerts,
         ledger: snap.ledger,
         realConnected: snap.realConnected,
+        liveError: snap.liveError,
         metricsCache: new Map(),
         refreshing: false,
         lastRefreshedAt: Date.now(),
