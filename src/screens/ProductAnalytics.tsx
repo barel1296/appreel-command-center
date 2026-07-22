@@ -20,7 +20,7 @@ const EVENT_CONTRACT: { name: string; when: string; payload: string; unlocks: st
     name: 'purchase',
     when: 'Any coin pack, episode unlock or subscription completes',
     payload: 'value, currency, product_id, is_subscription',
-    unlocks: 'Revenue, ROAS, LTV, payback, whale concentration — currently sent WITHOUT value',
+    unlocks: 'Per-title purchase attribution. AppsFlyer already reports revenue in aggregate; Meta receives the event with an empty value, so Meta-side ROAS optimisation is still blind',
   },
   {
     name: 'session_start',
@@ -100,7 +100,7 @@ export function ProductAnalytics() {
           <EmptyState
             icon={<Gamepad2 size={22} />}
             title="No product event source connected"
-            message="Meta reports what was bought, never what happened inside the app. Until AppReel sends its own events, retention, engagement and funnel analysis stay dark — the contract below is what closes that gap."
+            message="AppsFlyer covers acquisition, revenue and retention, but not what happens inside an episode. Mixpanel holds that data — the connection is just pointed at the wrong region. The contract below is what this screen renders once it lands."
           />
         </Card>
 
@@ -138,14 +138,15 @@ export function ProductAnalytics() {
         </Card>
 
         <Card className="p-4 mt-4">
-          <SectionTitle title="The one that is already half-connected" />
+          <SectionTitle title="Mixpanel is connected — to the wrong region" />
           <p className="text-[13px] text-ink-mid leading-relaxed">
-            <strong className="text-ink-hi">purchase</strong> is the exception: Meta already receives it — 23 purchase
-            events across the window. What is missing is the <strong className="text-ink-hi">value</strong>. Every row
-            comes back with an empty <span className="num text-ink-hi">omni_purchase_values</span>, so the platform can
-            count purchases and price them against spend, but cannot compute revenue, ROAS, LTV or payback. Adding
-            value and currency to the existing purchase call is the single highest-leverage tracking fix available —
-            it turns four blocked screens on at once, without any new integration.
+            AppReel has two Mixpanel projects — <strong className="text-ink-hi">AppReel Short Drama LTD</strong> (3850345)
+            and <strong className="text-ink-hi">AppReel Development</strong> (3904347) — and both are hosted in the
+            <strong className="text-ink-hi"> US</strong> region. The connection in use points at the
+            <span className="num text-ink-hi"> mcp-eu.mixpanel.com</span> server, so every query is refused with a
+            regional access restriction before it reaches the data. Nothing is missing from Mixpanel itself.
+            Reconnecting against <span className="num text-ink-hi">mcp.mixpanel.com</span> turns this screen on with no
+            other work: the events below almost certainly already exist there.
           </p>
         </Card>
       </div>

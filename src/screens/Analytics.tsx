@@ -84,19 +84,52 @@ export function Analytics() {
   const revOf = (r: { ad_revenue: number; iap_revenue: number }) =>
     revenueSource === 'ad_iap' ? r.ad_revenue + r.iap_revenue : r.ad_revenue
 
+  const roasHeat = (v: number | null) => {
+    if (v === null) return {}
+    if (v >= 1) return { background: `rgba(16,185,129,${Math.min(0.45, 0.2 + (v - 1) * 0.5)})` }
+    const t = Math.max(0, Math.min(1, v))
+    return t >= 0.6
+      ? { background: `rgba(245,158,11,${0.08 + (t - 0.6) * 0.5})` }
+      : { background: `rgba(239,68,68,${0.06 + (0.6 - t) * 0.35})` }
+  }
+
+  const iapAvailable = (ds.geo_cohort ?? []).some((r) => r.iap_revenue > 0)
+  // What this workspace can measure. Revenue/retention modules are replaced by
+  // an explicit gap card when their source is missing — never by a zero.
+  const meas = useMemo(() => measurement(ds), [ds])
+
+  const cohorts = useMemo(() =>
+    ds.cohorts.filter((c) => selectedIds.has(c.campaign_id) && c.cohort_date >= cutoff && c.cohort_date <= cutTo),
+    [ds, campaignFilter, cutoff, cutTo])
+  const spendRows = useMemo(() =>
+    ds.spend.filter((r) => selectedIds.has(r.campaign_id) && r.date >= cutoff && r.date <= cutTo),
+    [ds, campaignFilter, cutoff, cutTo])
+
   // ── Daily ROAS by cohort: cumulative revenue ÷ spend, per cohort age ──────
   // Each series is one cohort's payback path; the bold line is the weighted
   // average across cohorts that are old enough to have that age.
   const roasCurves = useMemo(() => {
-    if (geoAgeRows.length === 0) return null
     const MAXA = 14
     const spendByCohort = new Map<string, number>()
-    for (const r of geoRows) spendByCohort.set(r.cohort_date, (spendByCohort.get(r.cohort_date) ?? 0) + r.spend)
     const revByCohortAge = new Map<string, Map<number, number>>()
-    for (const r of geoAgeRows) {
-      const m = revByCohortAge.get(r.cohort_date) ?? new Map<number, number>()
-      m.set(r.age, (m.get(r.age) ?? 0) + revOf(r))
-      revByCohortAge.set(r.cohort_date, m)
+    if (geoAgeRows.length > 0) {
+      // Geo cube carries a per-age revenue grain — use it so the country filter
+      // applies to the curve as well.
+      for (const r of geoRows) spendByCohort.set(r.cohort_date, (spendByCohort.get(r.cohort_date) ?? 0) + r.spend)
+      for (const r of geoAgeRows) {
+        const m = revByCohortAge.get(r.cohort_date) ?? new Map<number, number>()
+        m.set(r.age, (m.get(r.age) ?? 0) + revOf(r))
+        revByCohortAge.set(r.cohort_date, m)
+      }
+    } else {
+      // No geo-by-age grain: build the same curve from the cohort facts, which
+      // carry revenue_by_age directly. Country filtering does not apply here.
+      for (const r of spendRows) spendByCohort.set(r.date, (spendByCohort.get(r.date) ?? 0) + r.spend)
+      for (const c of cohorts) {
+        const m = revByCohortAge.get(c.cohort_date) ?? new Map<number, number>()
+        c.revenue_by_age.forEach((v, age) => m.set(age, (m.get(age) ?? 0) + v))
+        revByCohortAge.set(c.cohort_date, m)
+      }
     }
     const cohortDates = [...spendByCohort.entries()]
       .filter(([, sp]) => sp > 0)
@@ -158,30 +191,9 @@ export function Analytics() {
       tableAvg,
       maxAge: MAXA,
     }
-  }, [geoAgeRows, geoRows, revenueSource])
+  }, [geoAgeRows, geoRows, revenueSource, spendRows, cohorts])
 
   // ROAS heat: red below 0.5x, amber approaching, green past payback
-  const roasHeat = (v: number | null) => {
-    if (v === null) return {}
-    if (v >= 1) return { background: `rgba(16,185,129,${Math.min(0.45, 0.2 + (v - 1) * 0.5)})` }
-    const t = Math.max(0, Math.min(1, v))
-    return t >= 0.6
-      ? { background: `rgba(245,158,11,${0.08 + (t - 0.6) * 0.5})` }
-      : { background: `rgba(239,68,68,${0.06 + (0.6 - t) * 0.35})` }
-  }
-
-  const iapAvailable = (ds.geo_cohort ?? []).some((r) => r.iap_revenue > 0)
-  // What this workspace can measure. Revenue/retention modules are replaced by
-  // an explicit gap card when their source is missing — never by a zero.
-  const meas = useMemo(() => measurement(ds), [ds])
-
-  const cohorts = useMemo(() =>
-    ds.cohorts.filter((c) => selectedIds.has(c.campaign_id) && c.cohort_date >= cutoff && c.cohort_date <= cutTo),
-    [ds, campaignFilter, cutoff, cutTo])
-  const spendRows = useMemo(() =>
-    ds.spend.filter((r) => selectedIds.has(r.campaign_id) && r.date >= cutoff && r.date <= cutTo),
-    [ds, campaignFilter, cutoff, cutTo])
-
   // ── Per-cohort-date aggregation (the cohort table rows) ────────────────────
   interface CohortRow {
     date: string
@@ -352,7 +364,11 @@ export function Analytics() {
         spend,
         installs,
         cpi: cpiOf(spend, installs),
-        ctr: safe(sum(sp.map((r) => r.clicks)), sum(sp.map((r) => r.impressions))),
+        // Organic has clicks (deep links, shares) but no ad impressions, so CTR
+        // is undefined there rather than a nonsensical four-digit percentage.
+        ctr: sum(sp.map((r) => r.impressions)) > 0
+          ? sum(sp.map((r) => r.clicks)) / sum(sp.map((r) => r.impressions))
+          : NaN,
         d1: safe(sum(d1El.map((k) => k.d1_retained)), sum(d1El.map((k) => k.installs))),
         revenue,
         roas: spend > 0 ? revenue / spend : NaN,

@@ -74,19 +74,32 @@ export function evaluateCampaign(ds: Dataset, campaignId: string, cfg: ProductCo
 
   // ── Gate first (spec §13): red data blocks any business decision ──────────
   if (m.quality_gate.status === 'red') {
+    // Name the sources that actually failed. Saying "fix attribution" when
+    // attribution is green and the gap is elsewhere sends the team to the wrong
+    // system — the gate must be specific about which contract broke.
+    const failed = m.quality_gate.checks.filter((c) => c.status === 'red').map((c) => c.label)
+    const attributionBroken = m.match_rate < t.min_match_rate
     type = 'fix_tracking'
-    title = `Fix attribution before any decision on ${campaign.name}`
-    reason = `Data quality is RED for this slice (${m.quality_gate.checks.filter((c) => c.status === 'red').map((c) => c.label).join(', ')}). ` +
-      `Match rate is ${fmtPct(m.match_rate)}, so spend cannot be reliably joined to installs and revenue. ` +
+    title = attributionBroken
+      ? `Fix attribution before any decision on ${campaign.name}`
+      : `Close the ${failed[0] ?? 'data'} gap before any decision on ${campaign.name}`
+    reason = `Data quality is RED for this slice (${failed.join(', ')}). ` +
+      (attributionBroken
+        ? `Match rate is ${fmtPct(m.match_rate)}, so spend cannot be reliably joined to installs and revenue. `
+        : `Attribution and cost are certified, but the checks above are not, so cohort quality cannot be verified. `) +
       `Business recommendation is blocked; this is routed as a tracking fix (spec §13).`
     risk = 'critical'
-    action = `Repair the ${channel.name} → MMP mapping: verify postback configuration and campaign ID mapping, then re-run the affected backfill window.`
-    stop = 'If match rate stays below threshold 48h after fix, escalate to the MMP integration owner.'
+    action = attributionBroken
+      ? `Repair the ${channel.name} → MMP mapping: verify postback configuration and campaign ID mapping, then re-run the affected backfill window.`
+      : `Restore the failing source(s): ${failed.join(', ')}. Until they land, this campaign can only be judged on cost and volume.`
+    stop = attributionBroken
+      ? 'If match rate stays below threshold 48h after fix, escalate to the MMP integration owner.'
+      : 'If the source is still missing after 48h, decide on cost-efficiency alone and record the reduced confidence.'
     impact = `${fmtMoney(m.spend)} of window spend is currently un-decidable; unblocks Scale/Reduce decisions for this campaign.`
     priority = 95
     monitorDays = 2
     extraEvidence = [
-      ev('Match rate', fmtPct(m.match_rate), `min ${fmtPct(t.min_match_rate)}`, 'bad'),
+      ev('Match rate', fmtPct(m.match_rate), `min ${fmtPct(t.min_match_rate)}`, attributionBroken ? 'bad' : 'good'),
       ev('Blocked spend (window)', fmtMoney(m.spend), '—', 'neutral'),
     ]
   }

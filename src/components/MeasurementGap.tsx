@@ -23,8 +23,8 @@ export function MeasurementBanner({ m }: { m: Measurement }) {
             {gaps.length} source{gaps.length > 1 ? 's' : ''} not connected — those metrics are blank, not zero
           </div>
           <p className="text-2xs text-ink-mid leading-relaxed mb-2.5">
-            Everything below is computed from Meta Ads only. Metrics that need a missing source are hidden rather than
-            shown as $0, so nothing here can be mistaken for weak performance.
+            Metrics that need a missing source are hidden rather than shown as $0, so nothing here can be mistaken for
+            weak performance. Everything else on this page is certified.
           </p>
           <ul className="space-y-1.5">
             {gaps.map((g) => (
