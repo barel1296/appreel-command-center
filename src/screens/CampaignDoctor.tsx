@@ -226,7 +226,7 @@ function UsersTab({ m, t, campaignId }: { m: CampaignMetrics; t: any; campaignId
         <Verdict label="D1 retention" value={fmtPct(m.d1)} target={`min ${fmtPct(t.min_d1)}`} ok={m.d1 >= t.min_d1} explain="Point-in-time: cohorts younger than 1 day are excluded, not assumed." />
         <Verdict label="D3 retention" value={fmtPct(m.d3)} target="curve" ok={m.d3 >= m.d1 * 0.5} explain="Healthy curves keep ≥50% of D1 by D3." />
         <Verdict label="D7 retention" value={fmtPct(m.d7)} target={`min ${fmtPct(t.min_d7)}`} ok={m.d7 >= t.min_d7} explain="Only cohorts ≥7 days old count." />
-        <Verdict label="Depth L3 by D1" value={fmtPct(m.depth_l3_share)} target={`min ${fmtPct(t.min_depth_l3_share)}`} ok={m.depth_l3_share >= t.min_depth_l3_share} explain="Share reaching the configured 'Committed player' layer (product config, not hard-coded)." />
+        <Verdict label="Depth L3 by D1" value={fmtPct(m.depth_l3_share)} target={`min ${fmtPct(t.min_depth_l3_share)}`} ok={m.depth_l3_share >= t.min_depth_l3_share} explain="Share of installs reaching the committed-viewer depth layer (episode 10). Product-level rate from Mixpanel, applied per campaign — the milestone is not attributed to a campaign." />
         <Verdict label="Sessions / user" value={m.sessions_per_user.toFixed(1)} target="≥ 2.0" ok={m.sessions_per_user >= 2} explain="Average day-0 sessions per install." />
       </Card>
       <Card className="p-4">

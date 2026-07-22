@@ -7,6 +7,7 @@ import { useApp } from './state/store'
 import { CommandCenter } from './screens/CommandCenter'
 import { Analytics } from './screens/Analytics'
 import { ProductAnalytics } from './screens/ProductAnalytics'
+import { Content } from './screens/Content'
 import { WarRoom } from './screens/WarRoom'
 import { FreshMonitor } from './screens/FreshMonitor'
 import { CampaignDoctor } from './screens/CampaignDoctor'
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="/" element={<CommandCenter />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/product" element={<ProductAnalytics />} />
+          <Route path="/content" element={<Content />} />
           <Route path="/war-room" element={<WarRoom />} />
           <Route path="/war-room/:alertId" element={<WarRoom />} />
           <Route path="/fresh" element={<FreshMonitor />} />

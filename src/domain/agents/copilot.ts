@@ -33,7 +33,8 @@ export function answerQuestion(ctx: AgentContext, q: string): CopilotAnswer {
     (lq.includes(c.channel_id) || c.geos.some((g) => lq.includes(g.toLowerCase()))),
   )
 
-  if (/(level|stuck|funnel|difficulty|dau|active users|session|player|engagement|ad format|ecpm|rewarded|interstitial|banner|app version|\u05e9\u05dc\u05d1|\u05e0\u05ea\u05e7\u05e2|\u05de\u05e9\u05ea\u05de\u05e9\u05d9\u05dd \u05e4\u05e2\u05d9\u05dc\u05d9\u05dd)/.test(lq)) return productAgent(ctx, lq)
+  if (/(series|drama|title|catalog|catalogue|content|binge|episode|watch|coin|paywall|unlock|subscription|\u05e1\u05d3\u05e8\u05d4|\u05ea\u05d5\u05db\u05df|\u05e4\u05e8\u05e7)/.test(lq)) return contentAgent(ctx, lq)
+  if (/(stuck|funnel|dau|active users|session|viewer|engagement|ad format|ecpm|rewarded|interstitial|banner|app version|\u05e0\u05ea\u05e7\u05e2|\u05de\u05e9\u05ea\u05de\u05e9\u05d9\u05dd \u05e4\u05e2\u05d9\u05dc\u05d9\u05dd)/.test(lq)) return productAgent(ctx, lq)
   if (/(scale|increase budget|spend more|ramp)/.test(lq)) return scaleAgent(ctx, named?.campaign_id)
   if (/(fatigue|creative|refresh|hook|concept|asset)/.test(lq)) return creativeAgent(ctx)
   if (/(track|attribution|match rate|data (quality|health)|freshness|pipeline|connector)/.test(lq)) return dataAgent(ctx)
@@ -272,6 +273,63 @@ function socialAgent(ctx: AgentContext): CopilotAnswer {
   }
 }
 
+// Content agent — the catalogue is the product for a short-drama app, so
+// "which series should we buy for" is a first-class growth question.
+function contentAgent(ctx: AgentContext, lq: string): CopilotAnswer {
+  const series = ctx.ds.series ?? []
+  const coins = ctx.ds.coins ?? []
+  if (series.length === 0) {
+    return {
+      agent: 'Content Agent',
+      claim: 'No catalogue data in this workspace — series-level facts need the product event source.',
+      evidence: [],
+      confidence: 'low',
+      limitations: 'I will not guess which dramas perform.',
+      next_action: 'Connect the product event source so series_name lands on playback and paywall events.',
+    }
+  }
+  const withRates = series.map((s) => ({
+    ...s,
+    eps: s.starts > 0 ? s.episode_completes / s.starts : 0,
+    payRate: s.paywall_users > 0 ? s.purchases / s.paywall_users : 0,
+  }))
+  const askCoins = /(coin|currency|balance|unlock economy)/.test(lq)
+  if (askCoins && coins.length > 0) {
+    const v = (k: string) => coins.find((c) => c.metric === k)?.value ?? 0
+    const burn = v('earned') > 0 ? v('spent') / v('earned') : 0
+    return {
+      agent: 'Content Agent',
+      claim: `Only ${(burn * 100).toFixed(0)}% of granted coins are ever spent — ${v('spent').toLocaleString()} of ${v('earned').toLocaleString()}. ` +
+        `${v('spenders').toLocaleString()} of ${v('earners').toLocaleString()} earners spend at all, so most viewers hold a balance large enough that the paywall never binds.`,
+      evidence: coins.map((c) => ({ label: c.metric, value: c.value.toLocaleString(), source: 'Mixpanel coin events' })),
+      confidence: 'high',
+      limitations: 'Balances are aggregate; I cannot see per-user distribution or expiry from this grain.',
+      next_action: 'Tighten the faucet (rewarded-ad grant size, check-in streak) before testing any price change — pricing will not move a metric the currency already bypasses.',
+    }
+  }
+  const unadvertised = withRates.filter((s) => !s.advertised_as && s.starts >= 40).sort((a, b) => b.eps - a.eps)
+  const advertised = withRates.filter((s) => s.advertised_as).sort((a, b) => a.payRate - b.payRate)
+  const best = [...withRates].filter((s) => s.paywall_users >= 50).sort((a, b) => b.payRate - a.payRate)[0]
+  const worst = advertised[0]
+  return {
+    agent: 'Content Agent',
+    claim: best && worst
+      ? `${best.series_name} converts best at ${(best.payRate * 100).toFixed(1)}% paywall→pay, while ${worst.series_name} converts at ${(worst.payRate * 100).toFixed(1)}% despite carrying spend. ` +
+        (unadvertised[0] ? `${unadvertised[0].series_name} is the strongest title with no creative behind it (${unadvertised[0].eps.toFixed(1)} episodes per starter).` : '')
+      : 'Catalogue performance is available but too thin to rank confidently.',
+    evidence: [
+      ...withRates.sort((a, b) => b.starts - a.starts).slice(0, 5).map((s) => ({
+        label: s.series_name,
+        value: `${s.starts.toLocaleString()} starts · ${s.eps.toFixed(1)} eps/starter · ${(s.payRate * 100).toFixed(1)}% paywall→pay${s.advertised_as ? ' · advertised' : ''}`,
+        source: 'Mixpanel series events',
+      })),
+    ],
+    confidence: 'high',
+    limitations: 'Series revenue is purchase COUNT, not dollars — product_purchased is missing on 19 of 46 payments, so I cannot rank titles by revenue.',
+    next_action: 'Open Content → Spend vs paywall conversion; shift budget from the worst-converting advertised series toward the proven unadvertised ones.',
+  }
+}
+
 function productAgent(ctx: AgentContext, lq: string): CopilotAnswer {
   const ds = ctx.ds
   const daily = ds.product_daily ?? []
@@ -282,8 +340,8 @@ function productAgent(ctx: AgentContext, lq: string): CopilotAnswer {
       claim: 'Product analytics are not available in this workspace — no product event source is connected.',
       evidence: [],
       confidence: 'low',
-      limitations: 'The simulation source has no in-game event grain; I will not invent product metrics.',
-      next_action: 'Connect the live workspace to unlock DAU, sessions, level funnel and ad economics.',
+      limitations: 'No product event grain is available; I will not invent product metrics.',
+      next_action: 'Connect the product event source to unlock DAU, sessions, the episode funnel and ad economics.',
     }
   }
   const recent = daily.slice(-7)
@@ -321,16 +379,16 @@ function productAgent(ctx: AgentContext, lq: string): CopilotAnswer {
   if (askStuck && hotspots.length > 0) {
     return {
       agent: 'Product Agent',
-      claim: `Players churn hardest at ${hotspots.map((h) => `level ${h.level} (−${(h.drop * 100).toFixed(1)}% of reach vs previous level)`).join(', ')}. ` +
-        `These early walls feed directly into D1 retention — fixing them improves UA economics before touching any campaign.`,
+      claim: `Viewers drop hardest reaching ${hotspots.map((h) => `episode ${h.level} (−${(h.drop * 100).toFixed(1)}% of the remaining audience)`).join(', ')}. ` +
+        `In short drama these are almost always paywall or cliffhanger placement, not content quality — average watch completion is above 95%, so people finish what they start.`,
       evidence: hotspots.map((h) => ({
-        label: `Level ${h.level}`,
-        value: `drop −${(h.drop * 100).toFixed(1)}% · completion ${(h.completion * 100).toFixed(0)}% · ${h.duration.toFixed(0)}s avg (median ${median.toFixed(0)}s)`,
-        source: 'Product events (all-time funnel)',
+        label: `Episode ${h.level}`,
+        value: `drop −${(h.drop * 100).toFixed(1)}% · ${h.reach.toLocaleString()} viewers reached · ${(h.completion * 100).toFixed(0)}% continue`,
+        source: 'Mixpanel episode milestones',
       })),
       confidence: 'high',
-      limitations: 'Funnel is all-time (all traffic mixes). Drop-off blends difficulty churn with natural session-end points — check solve time to tell them apart.',
-      next_action: 'Open Product → Difficulty hotspots and A/B a tuned version of the worst step.',
+      limitations: 'Milestones are catalogue-wide, not per series, and are not attributed to a campaign. Per-series depth is on the Content screen.',
+      next_action: 'Open Content → Catalogue performance to see which series carry the drop, then test the unlock offer at that episode.',
     }
   }
   if (askAds && formats.length > 0) {
@@ -401,5 +459,8 @@ export const SUGGESTED_PROMPTS = [
   'Why can we not compute ROAS?',
   'Can we scale the Android purchase campaign?',
   'Which drama titles are winning?',
+  'Are we advertising the right series?',
+  'What is happening with the coin economy?',
+  'Where do viewers stop watching?',
   'What is blocking every decision right now?',
 ]

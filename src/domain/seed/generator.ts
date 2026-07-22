@@ -51,6 +51,17 @@ export interface Dataset {
   // Paywall → payment funnel from the product event source. Steps 1-4 are the
   // sequential funnel; the rest are named side-counts (cancels, failures).
   monetization_funnel?: { step: number; label: string; users: number; note: string }[]
+  // ── Short-drama content layer ──────────────────────────────────────────────
+  // The catalogue IS the product. `advertised_as` links a series to the creative
+  // concept that promotes it, which closes the loop between what UA buys and
+  // what viewers actually watch and pay for.
+  series?: {
+    series_name: string; starts: number; completers: number; episode_completes: number
+    paywall_users: number; unlocks: number; purchases: number; advertised_as: string | null
+  }[]
+  iap?: { product: string; events: number; users: number; kind: string }[]
+  coins?: { metric: string; value: number; note: string }[]
+  ad_network?: { network: string; impressions: number; revenue: number }[]
   version_daily?: { date: string; app_version: string; dau: number }[]
 }
 

@@ -92,6 +92,13 @@ interface ProductDailyRow {
 interface EpisodeFunnelRow { step: number; label: string; users: number }
 interface RetentionRow { age: number; eligible: number; retained: number }
 interface MonetizationRow { step: number; label: string; users: number; note: string }
+interface SeriesRow {
+  series_name: string; starts: number; completers: number; episode_completes: number
+  paywall_users: number; unlocks: number; purchases: number; advertised_as: string | null
+}
+interface IapRow { product: string; events: number; users: number; kind: string }
+interface CoinRow { metric: string; value: number; note: string }
+interface AdNetworkRow { network: string; impressions: number; revenue: number }
 interface SyncRow { source: string; synced_at: string; rows_written: number; note: string }
 
 export interface RealData {
@@ -106,6 +113,10 @@ export interface RealData {
   episodeFunnel: EpisodeFunnelRow[]
   retention: RetentionRow[]
   monetization: MonetizationRow[]
+  series: SeriesRow[]
+  iap: IapRow[]
+  coins: CoinRow[]
+  adNetwork: AdNetworkRow[]
   syncs: SyncRow[]
 }
 
@@ -121,7 +132,8 @@ async function rest<T>(path: string): Promise<T> {
 export async function fetchRealData(): Promise<RealData | null> {
   try {
     const [campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
-           productDaily, episodeFunnel, retention, monetization, syncs] = await Promise.all([
+           productDaily, episodeFunnel, retention, monetization,
+           series, iap, coins, adNetwork, syncs] = await Promise.all([
       rest<CampaignRow[]>('ar_dim_campaign?select=*'),
       rest<SpendRow[]>('ar_fact_spend_daily?select=*&order=date'),
       rest<CohortRow[]>('ar_fact_cohort_daily?select=*&order=cohort_date'),
@@ -133,12 +145,17 @@ export async function fetchRealData(): Promise<RealData | null> {
       rest<EpisodeFunnelRow[]>('ar_fact_episode_funnel?select=*&order=step'),
       rest<RetentionRow[]>('ar_fact_retention_curve?select=*&order=age'),
       rest<MonetizationRow[]>('ar_fact_monetization?select=*&order=step'),
+      rest<SeriesRow[]>('ar_fact_series?select=*&order=starts.desc'),
+      rest<IapRow[]>('ar_fact_iap?select=*&order=events.desc'),
+      rest<CoinRow[]>('ar_fact_coins?select=*'),
+      rest<AdNetworkRow[]>('ar_fact_ad_network?select=*&order=revenue.desc'),
       rest<SyncRow[]>('ar_sync_log?select=*&order=synced_at.desc&limit=10'),
     ])
     if (campaigns.length === 0) return null
     return {
       campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
-      productDaily, episodeFunnel, retention, monetization, syncs,
+      productDaily, episodeFunnel, retention, monetization,
+      series, iap, coins, adNetwork, syncs,
     }
   } catch {
     return null
@@ -421,6 +438,19 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
     monetization_funnel: real.monetization.map((m) => ({
       step: Number(m.step), label: m.label, users: Number(m.users), note: m.note,
     })),
+    series: real.series.map((r) => ({
+      series_name: r.series_name,
+      starts: Number(r.starts),
+      completers: Number(r.completers),
+      episode_completes: Number(r.episode_completes),
+      paywall_users: Number(r.paywall_users),
+      unlocks: Number(r.unlocks),
+      purchases: Number(r.purchases),
+      advertised_as: r.advertised_as,
+    })),
+    iap: real.iap.map((r) => ({ product: r.product, events: Number(r.events), users: Number(r.users), kind: r.kind })),
+    coins: real.coins.map((r) => ({ metric: r.metric, value: Number(r.value), note: r.note })),
+    ad_network: real.adNetwork.map((r) => ({ network: r.network, impressions: Number(r.impressions), revenue: Number(r.revenue) })),
     sync_log: real.syncs.map((r) => ({
       source: r.source, synced_at: r.synced_at, rows_written: Number(r.rows_written), note: r.note,
     })),

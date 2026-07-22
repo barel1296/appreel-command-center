@@ -228,7 +228,7 @@ export function CommandCenter() {
           caveat={mmpConnected ? undefined : 'Meta-reported'}
         />
         {hasRevenue ? (
-          <Kpi label="Ad Revenue" value={fmtMoney(kpis.revenue.v)} delta={kpis.revenue.d} hint="Ad revenue by calendar day (all users, all cohorts) — matches your monetization dashboard. Attributed cohort revenue lives in Analytics." />
+          <Kpi label="Revenue" value={fmtMoney(kpis.revenue.v)} delta={kpis.revenue.d} hint="Total revenue by calendar day across all users — in-app purchases plus ad revenue. AppReel is overwhelmingly an IAP business: ads contribute under 4%. Attributed cohort revenue lives in Analytics." />
         ) : (
           <Kpi
             label="Purchases"
@@ -282,9 +282,9 @@ export function CommandCenter() {
         {/* Trend */}
         <Card className="p-4 lg:col-span-2">
           <SectionTitle
-            title={hasRevenue ? 'Spend vs Ad Revenue' : 'Daily spend & installs'}
+            title={hasRevenue ? 'Spend vs Revenue' : 'Daily spend & installs'}
             hint={hasRevenue
-              ? 'Daily spend against same-calendar-day ad revenue across all users. This is cash-view, not cohort-view — cohort ROAS lives in Analytics.'
+              ? 'Daily spend against same-calendar-day revenue across all users (IAP + ads). This is cash-view, not cohort-view — cohort ROAS lives in Analytics.'
               : 'No revenue source is connected, so this shows acquisition volume against cost. Once purchase value or ad revenue lands, this chart becomes spend vs revenue and ROAS unlocks everywhere.'}
           />
           <AreaTrend

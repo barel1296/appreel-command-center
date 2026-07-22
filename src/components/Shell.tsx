@@ -3,7 +3,7 @@
 import { clsx } from 'clsx'
 import {
   Activity, AlertTriangle, BarChart3, Bell, BookOpenCheck, BrainCircuit, ClipboardList,
-  Database, Flame, Gamepad2, LayoutDashboard, Menu, Palette, Rocket, Settings2,
+  Clapperboard, Database, Film, Flame, LayoutDashboard, Menu, Palette, Rocket, Settings2,
   Sparkles, Stethoscope, X,
 } from 'lucide-react'
 import { ReactNode, useEffect, useState } from 'react'
@@ -18,7 +18,8 @@ import { CountryFilter } from './CountryFilter'
 const NAV = [
   { to: '/', label: 'Command Center', icon: LayoutDashboard, end: true },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/product', label: 'Product', icon: Gamepad2 },
+  { to: '/content', label: 'Content', icon: Clapperboard },
+  { to: '/product', label: 'Product', icon: Film },
   { to: '/war-room', label: 'War Room', icon: Flame },
   { to: '/fresh', label: 'Fresh Campaigns', icon: Rocket },
   { to: '/doctor', label: 'Campaign Doctor', icon: Stethoscope },

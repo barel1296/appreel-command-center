@@ -26,8 +26,17 @@ const TREND_LABELS: Record<TrendMetric, string> = {
   purchases: 'Purchase events / cohort',
   cpp: 'Cost per purchase / cohort',
   d1: 'D1 retention / cohort',
-  revenue: 'Ad revenue',
+  revenue: 'Revenue (IAP + ads)',
   roas: 'Observed ROAS',
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line px-3 py-2">
+      <div className="label-2xs mb-0.5">{label}</div>
+      <div className="num text-[15px] font-bold">{value}</div>
+    </div>
+  )
 }
 
 const sum = (a: number[]) => a.reduce((x, y) => x + y, 0)
@@ -454,7 +463,7 @@ export function Analytics() {
       sortValue: (r) => r.share,
     },
     { key: 'paid', header: <span className="inline-flex items-center gap-1">Paid share <HelpTip text="Share of this country's installs attributed to paid campaigns (vs organic/unattributed)." /></span>, align: 'right', hideBelow: 'sm', render: (r) => <span className="num">{fmtPct(r.paidShare, 0)}</span>, sortValue: (r) => r.paidShare },
-    { key: 'revenue', header: 'Ad Revenue', align: 'right', render: (r) => <span className="num">{fmtMoney(r.revenue)}</span>, sortValue: (r) => r.revenue },
+    { key: 'revenue', header: 'Revenue', align: 'right', render: (r) => <span className="num">{fmtMoney(r.revenue)}</span>, sortValue: (r) => r.revenue },
     {
       key: 'rpi', header: <span className="inline-flex items-center gap-1">Rev / Install <HelpTip text="Observed revenue ÷ installs for the window. Geo is available at country × channel grain only, so this is a channel-level read, not campaign-level." /></span>,
       align: 'right',
@@ -762,6 +771,47 @@ export function Analytics() {
           yFmt={(v) => String(v)}
         />
       </Card>
+
+      {/* Revenue mix — the strategic read for a short-drama app */}
+      {(ds.ad_network?.length ?? 0) > 0 && (
+        <Card className="p-4 mb-4">
+          <SectionTitle
+            title="Revenue mix — IAP vs ads"
+            hint="Where the money actually comes from. Short-drama apps are usually assumed to be hybrid; the numbers decide whether that is true here."
+          />
+          {(() => {
+            const adRev = (ds.ad_network ?? []).reduce((a, n) => a + n.revenue, 0)
+            const total = (ds.revenue_daily ?? []).reduce((a, r) => a + r.revenue_usd, 0)
+            const iapRev = Math.max(0, total - adRev)
+            const adShare = total > 0 ? adRev / total : 0
+            const imps = (ds.ad_network ?? []).reduce((a, n) => a + n.impressions, 0)
+            return (
+              <>
+                <div className="flex h-8 rounded-lg overflow-hidden mb-3">
+                  <div className="bg-brand-500/70 flex items-center justify-center" style={{ width: `${Math.max(4, (1 - adShare) * 100)}%` }}>
+                    <span className="text-2xs font-bold text-white">IAP {fmtPct(1 - adShare, 0)}</span>
+                  </div>
+                  <div className="bg-warn-500/70 flex items-center justify-center" style={{ width: `${Math.max(4, adShare * 100)}%` }}>
+                    <span className="text-2xs font-bold text-white">Ads</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Stat label="In-app purchases" value={fmtMoney(iapRev)} />
+                  <Stat label="Ad revenue" value={fmtMoney(adRev, 2)} />
+                  <Stat label="Ad impressions" value={fmtNum(imps)} />
+                  <Stat label="Blended eCPM" value={imps > 0 ? fmtMoney((adRev * 1000) / imps, 2) : '—'} />
+                </div>
+                <p className="text-2xs text-ink-low mt-3 leading-relaxed">
+                  Ads contribute {fmtPct(adShare, 1)} of revenue across {fmtNum(imps)} impressions — a blended eCPM of{' '}
+                  {imps > 0 ? fmtMoney((adRev * 1000) / imps, 2) : '—'}. This is not a hybrid business in practice: it is an
+                  IAP business with an ad placement attached. Rewarded video is worth keeping as a coin faucet, but ad
+                  yield is not a lever that will move ROAS at this volume — pricing, paywall placement and checkout are.
+                </p>
+              </>
+            )
+          })()}
+        </Card>
+      )}
 
       {/* Cohort table */}
       <Card className="p-4 mb-4">

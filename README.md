@@ -20,10 +20,10 @@ npm run build    # production build (tsc + vite)
 
 | Source | Status | What it provides |
 |---|---|---|
-| Meta Ads — account `AppReel UTC` (780499204349049) | **connected** | Spend, impressions, clicks, network-reported installs, purchase events, ad-level creatives |
-| MMP / AppsFlyer | not connected | Attributed installs, cross-network de-duplication, cohort joins |
-| Purchase revenue **value** | broken | Purchase events arrive, but `omni_purchase_values` is empty on every row |
-| Product event stream | not connected | Retention, DAU, sessions, episode funnel |
+| AppsFlyer (MMP) | **connected** | Cost, attributed installs, revenue, D1/D3/D7 retention across every channel |
+| Meta Ads — `AppReel UTC` (780499204349049) | **connected** | Ad-level creatives |
+| TikTok Ads — `Appreel UTC` (7552499921006608385) | **connected** | Campaign spend and delivery |
+| Mixpanel — `AppReel Short Drama LTD` (3850345, US region) | **connected** | DAU, sessions, episode depth, series catalogue, paywall funnel, coin economy |
 
 Live facts are read from Supabase project `acukdxsdbkjdtnyrrjcm`, tables prefixed `ar_`:
 
@@ -46,12 +46,31 @@ never rendered as a zero — revenue, retention and ROAS modules are replaced by
 would be misleading (`d1`, `roas`, `arpu`, `quality_score`, CPI with no installs) resolve to
 `NaN`, which every formatter renders as an em dash.
 
-## Headline finding
+## This is a short-drama app, not a game
 
-Meta receives AppReel purchase events but no purchase **value**. That single gap blocks
-revenue, ROAS, LTV, payback and whale detection — four screens and every scale decision.
-Sending `value` + `currency` on the existing purchase call is the highest-leverage fix
-available and requires no new integration.
+The catalogue is the product. A series is the unit that acquires, retains and monetizes, so
+the platform models episodes as depth layers, series as the content asset, and creative
+concepts as drama titles — which lets spend and catalogue performance be compared directly.
+
+## Headline findings
+
+**The wall is checkout, not the paywall.** 1,270 viewers saw a paywall, 933 opened the store
+sheet, 162 tapped buy, 38 completed — against 210 `purchase_canceled` events. Roughly three of
+every four people who decided to pay did not finish.
+
+**Not a hybrid business.** Ads contribute 3.7% of revenue ($10.93 of $294) at a $2.77 blended
+eCPM. Ad yield will not move ROAS; pricing, paywall placement and checkout will.
+
+**UA is buying the wrong dramas.** Cinderella Trials takes $490 of spend and converts 1.8% of
+its paywalls; I Married My Boss takes $613 and converts 9.3%. My Dirty Little Secret is the
+second most-started series in the catalogue and has no creative behind it at all.
+
+**The coin faucet outruns the sink.** 300,320 coins granted, 82,300 spent (27%), and only 131
+of 510 earners ever spend. Most viewers hold a balance large enough that the paywall never
+binds — tighten the faucet before testing price.
+
+**Two retention numbers disagree.** AppsFlyer reports D1 ~11.7%, Mixpanel ~6%. Different
+identity models. Both are shown, labelled by source, and never averaged.
 
 ## Screens
 
@@ -59,7 +78,8 @@ available and requires no new integration.
 |---|---|
 | `/` | Command Center — KPIs, data health, decision queue preview, campaign portfolio |
 | `/analytics` | Cohorts, cost efficiency, trends, breakdowns |
-| `/product` | Product analytics — currently the event contract AppReel must implement |
+| `/content` | Catalogue performance, UA↔content loop, coin economy, purchase mix |
+| `/product` | DAU, retention, episode funnel, paywall→payment funnel |
 | `/war-room` | Urgent alerts with owners, SLA and lifecycle |
 | `/fresh` | Campaigns aged 0–7 days with explicit evidence bars |
 | `/doctor/:id` | Campaign Doctor — full diagnostic per campaign |

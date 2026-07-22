@@ -33,6 +33,24 @@ export function CreativeIntel() {
     ds.creatives.map((asset) => ({ asset, m: computeCreativeMetrics(ds, asset.creative_asset_id, t) })),
     [ds, t])
 
+  // A creative concept IS a drama title, so it joins straight to catalogue
+  // performance. This is what makes a "winning" creative judgeable: cheap
+  // installs into a series that never converts are not a win.
+  const seriesByConcept = useMemo(() => {
+    const m = new Map<string, { payRate: number; eps: number; starts: number; name: string }>()
+    for (const s of ds.series ?? []) {
+      if (!s.advertised_as) continue
+      m.set(s.advertised_as, {
+        name: s.series_name,
+        payRate: s.paywall_users > 0 ? s.purchases / s.paywall_users : 0,
+        eps: s.starts > 0 ? s.episode_completes / s.starts : 0,
+        starts: s.starts,
+      })
+    }
+    return m
+  }, [ds])
+  const seriesOf = (concept: string) => seriesByConcept.get(concept)
+
   const concepts = useMemo(() => {
     const byConcept = new Map<string, CreativeRow[]>()
     for (const r of rows) {
@@ -102,7 +120,10 @@ export function CreativeIntel() {
           <h1 className="text-xl font-extrabold tracking-tight flex items-center gap-2">
             <Palette size={20} className="text-brand-300" /> Creative Intelligence
           </h1>
-          <p className="text-[13px] text-ink-mid">Creatives decomposed by concept, hook, and lineage — which won, why, and where fatigue is building.</p>
+          <p className="text-[13px] text-ink-mid">
+            Each concept is a drama. Media performance sits next to how that series actually behaves in the app — a cheap
+            install for a story nobody pays to finish is not a win.
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <SearchInput value={search} onChange={setSearch} placeholder="Search assets, hooks…" className="w-full sm:w-56" />
@@ -116,17 +137,31 @@ export function CreativeIntel() {
 
       {/* Concept leaderboard */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
-        {concepts.map((c) => (
-          <Card key={c.concept} className="p-3.5 card-hover" onClick={() => setConceptFilter(c.concept === conceptFilter ? 'all' : c.concept)}>
-            <div className={clsx('text-[13px] font-bold truncate', conceptFilter === c.concept && 'text-brand-300')}>{c.concept}</div>
-            <div className="text-2xs text-ink-low mb-1.5">{c.assets} asset{c.assets > 1 ? 's' : ''}</div>
-            <div className="text-[15px] font-extrabold num">{fmtMoney(c.spend)}</div>
-            <div className="flex items-center justify-between mt-1">
-              <span className="text-2xs text-ink-low num">CPI {fmtMoney(c.cpi, 2)}</span>
-              <span className={clsx('text-2xs font-bold num', c.avgFatigue >= 55 ? 'text-warn-400' : 'text-ok-400')}>F{c.avgFatigue}</span>
-            </div>
-          </Card>
-        ))}
+        {concepts.map((c) => {
+          const s = seriesOf(c.concept)
+          return (
+            <Card key={c.concept} className="p-3.5 card-hover" onClick={() => setConceptFilter(c.concept === conceptFilter ? 'all' : c.concept)}>
+              <div className={clsx('text-[13px] font-bold truncate', conceptFilter === c.concept && 'text-brand-300')}>{c.concept}</div>
+              <div className="text-2xs text-ink-low mb-1.5">{c.assets} asset{c.assets > 1 ? 's' : ''}</div>
+              <div className="text-[15px] font-extrabold num">{fmtMoney(c.spend)}</div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-2xs text-ink-low num">CPI {fmtMoney(c.cpi, 2)}</span>
+                <span className={clsx('text-2xs font-bold num', c.avgFatigue >= 55 ? 'text-warn-400' : 'text-ok-400')}>F{c.avgFatigue}</span>
+              </div>
+              {s ? (
+                <div className="mt-2 pt-2 border-t border-line flex items-center justify-between gap-1">
+                  <span className="text-2xs text-ink-low">paywall→pay</span>
+                  <span className={clsx('text-2xs font-bold num',
+                    s.payRate >= 0.06 ? 'text-ok-400' : s.payRate > 0 ? 'text-warn-400' : 'text-bad-400')}>
+                    {fmtPct(s.payRate, 1)}
+                  </span>
+                </div>
+              ) : (
+                <div className="mt-2 pt-2 border-t border-line text-2xs text-ink-low">no series match</div>
+              )}
+            </Card>
+          )
+        })}
       </div>
 
       <Card className="p-4">
