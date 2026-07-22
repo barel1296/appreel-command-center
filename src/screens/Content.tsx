@@ -49,16 +49,26 @@ export function Content() {
   const seriesEp = ds.series_episode ?? []
   const [pick, setPick] = useState<string>('')
 
-  // Per-series episode curve + wall detection. The paywall shows up as a cliff,
-  // and it sits at a DIFFERENT episode for every series — that variance is the
-  // most actionable thing on this screen.
+  // Per-series episode curve + wall detection, built from the DATE-GRAINED
+  // completion facts so the date picker genuinely narrows it. Completions are
+  // total events and therefore additive across days; daily unique viewers are
+  // not, which is why this is measured in completions.
+  const { from, to } = app.dateRange
   const curves = useMemo(() => {
-    const by = new Map<string, { episode: number; viewers: number }[]>()
-    for (const r of seriesEp) {
-      by.set(r.series_name, [...(by.get(r.series_name) ?? []), { episode: r.episode, viewers: r.viewers }])
+    const daily = ds.series_episode_daily ?? []
+    const src = daily.length > 0
+      ? daily.filter((r) => r.date >= from && r.date <= to)
+        .map((r) => ({ series_name: r.series_name, episode: r.episode, viewers: r.completions }))
+      : seriesEp
+    const by = new Map<string, Map<number, number>>()
+    for (const r of src) {
+      const m = by.get(r.series_name) ?? new Map<number, number>()
+      m.set(r.episode, (m.get(r.episode) ?? 0) + r.viewers)
+      by.set(r.series_name, m)
     }
-    return [...by.entries()].map(([name, pts]) => {
-      const arr = pts.sort((a, b) => a.episode - b.episode)
+    return [...by.entries()].map(([name, m]) => {
+      const maxEp = Math.max(...m.keys())
+      const arr = Array.from({ length: maxEp }, (_, i) => ({ episode: i + 1, viewers: m.get(i + 1) ?? 0 }))
       let wall = { ep: 0, drop: 0 }
       for (let i = 1; i < arr.length; i++) {
         const prev = arr[i - 1].viewers
@@ -69,8 +79,8 @@ export function Content() {
       const peak = arr[0]?.viewers ?? 0
       const tail = arr[arr.length - 1]?.viewers ?? 0
       return { name, arr, wall, peak, survival: peak > 0 ? tail / peak : 0 }
-    }).sort((a, b) => b.peak - a.peak)
-  }, [seriesEp])
+    }).filter((c) => c.peak > 0).sort((a, b) => b.peak - a.peak)
+  }, [ds, seriesEp, from, to])
 
   const active = curves.find((c) => c.name === pick) ?? curves[0]
   const coins = ds.coins ?? []
@@ -89,12 +99,29 @@ export function Content() {
     return m
   }, [ds])
 
+  // Starts / completions narrow with the date picker when the daily grain is
+  // available; paywall and purchase counts have no daily grain, so they stay at
+  // window totals and the footnote says so.
+  const dailyBySeries = useMemo(() => {
+    const m = new Map<string, { starts: number; eps: number }>()
+    for (const r of ds.series_daily ?? []) {
+      if (r.date < from || r.date > to) continue
+      const e = m.get(r.series_name) ?? { starts: 0, eps: 0 }
+      e.starts += r.starts; e.eps += r.episode_completes
+      m.set(r.series_name, e)
+    }
+    return m
+  }, [ds, from, to])
+  const narrowed = (ds.series_daily?.length ?? 0) > 0 && platform === 'all'
+
   const rows: SeriesRow[] = useMemo(() => series.map((s) => ({
     name: s.series_name,
-    starts: s.starts,
+    starts: narrowed ? (dailyBySeries.get(s.series_name)?.starts ?? 0) : s.starts,
     completers: s.completers,
-    epCompletes: s.episode_completes,
-    epsPerStarter: safe(s.episode_completes, s.starts),
+    epCompletes: narrowed ? (dailyBySeries.get(s.series_name)?.eps ?? 0) : s.episode_completes,
+    epsPerStarter: narrowed
+      ? safe(dailyBySeries.get(s.series_name)?.eps ?? 0, dailyBySeries.get(s.series_name)?.starts ?? 0)
+      : safe(s.episode_completes, s.starts),
     holdRate: s.completers === null ? null : safe(s.completers, s.starts),
     paywallUsers: s.paywall_users,
     unlocks: s.unlocks,
@@ -102,7 +129,7 @@ export function Content() {
     payRate: safe(s.purchases, s.paywall_users),
     advertised: s.advertised_as,
     spend: s.advertised_as ? (spendByConcept.get(s.advertised_as) ?? 0) : 0,
-  })), [series, spendByConcept])
+  })).filter((r) => r.starts > 0 || r.epCompletes > 0), [series, spendByConcept, narrowed, dailyBySeries])
 
   const totals = useMemo(() => {
     const starts = rows.reduce((a, r) => a + r.starts, 0)
@@ -245,6 +272,7 @@ export function Content() {
           <SectionTitle
             title="Spend vs paywall conversion"
             hint="Series we do buy, ranked by how poorly the paywall converts. Money at the top of this list is buying viewers for stories they will not pay to finish."
+            right={<FixedWindow />}
           />
           {advertisedLaggards.length === 0 ? (
             <p className="text-[13px] text-ink-mid py-6 text-center">No advertised series with spend in this window.</p>
@@ -276,7 +304,8 @@ export function Content() {
       <Card className="p-4 mb-4">
         <SectionTitle
           title="Catalogue performance"
-          hint="Every series with playback in the window. Sort by eps/starter to find what holds, by paywall→pay to find what monetizes — they are not the same list."
+          hint="Every series with playback in range. Sort by eps/starter to find what holds, by paywall→pay to find what monetizes — they are not the same list."
+          right={narrowed ? undefined : <FixedWindow />}
         />
         <DataTable
           columns={columns}
@@ -287,6 +316,9 @@ export function Content() {
           emptyMessage="No playback in the selected window."
         />
         <p className="text-2xs text-ink-low mt-3 leading-relaxed">
+          <strong className="text-ink-hi">Starts and eps/starter follow the date picker</strong>; hold rate, paywall,
+          unlocks and purchases have no daily grain and stay at window totals for Jul 8–21. Starts are daily-unique
+          viewers summed, so a viewer returning to the same series on another day counts twice.
           Binge depth and monetization diverge sharply. A series can be devoured and never charged for (all free episodes),
           or barely watched and convert well (a paywall placed where the story hurts to stop). Read both columns before
           commissioning or buying.
@@ -298,7 +330,7 @@ export function Content() {
         <Card className="p-4 mb-4">
           <SectionTitle
             title="Episode drop-off by series"
-            hint="Unique viewers completing each episode. The cliff is the paywall. It is not the same episode for every series, and where it lands early the series never recovers."
+            hint="Episode completions in the selected date range. The cliff is the paywall. It is not the same episode for every series, and where it lands early the series never recovers."
             right={
               <select
                 value={active.name}
@@ -317,7 +349,7 @@ export function Content() {
             yFmt={(v) => fmtNum(v)}
           />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
-            <MiniStat label="Peak (Ep 1)" value={fmtNum(active.peak)} />
+            <MiniStat label="Ep 1 completions" value={fmtNum(active.peak)} />
             <MiniStat label="Wall at" value={active.wall.ep > 0 ? `Ep ${active.wall.ep} → ${active.wall.ep + 1}` : '—'} />
             <MiniStat label="Lost at wall" value={active.wall.drop > 0 ? `−${fmtPct(active.wall.drop, 0)}` : '—'} tone={active.wall.drop >= 0.6 ? 'bad' : active.wall.drop >= 0.45 ? 'warn' : 'ok'} />
             <MiniStat label="Reach Ep 20" value={fmtPct(active.survival, 0)} tone={active.survival >= 0.2 ? 'ok' : 'warn'} />
@@ -328,7 +360,7 @@ export function Content() {
             <table className="w-full text-[13px] min-w-[520px]">
               <thead>
                 <tr className="border-b border-line">
-                  {['Episode', 'Viewers', 'Continued from prev.', 'Lost', 'Still watching vs Ep 1'].map((h, i) => (
+                  {['Episode', 'Completions', 'Continued from prev.', 'Lost', 'Still watching vs Ep 1'].map((h, i) => (
                     <th key={h} className={clsx('label-2xs py-2 px-2.5 whitespace-nowrap', i === 0 ? 'text-left' : 'text-right')}>{h}</th>
                   ))}
                 </tr>
@@ -389,7 +421,8 @@ export function Content() {
             </div>
           </div>
           <p className="text-2xs text-ink-low mt-3 leading-relaxed">
-            The wall moves between episode 2 and episode 9 depending on the series, and the difference decides the title.
+            Measured in episode completions, not unique viewers — completions are additive so any date range sums
+            correctly. The wall moves between episode 2 and episode 9 depending on the series, and the difference decides the title.
             I Married My Boss walls at episode 8 and only loses 42% — its curve then flattens and it converts 9.3%.
             My Dirty Little Secret walls at episode 6 and loses 75%; it is the second most-started series in the catalogue
             and converts 3.4%. Moving a wall later is a content-ops change, not a media buy, and it is almost certainly
@@ -404,6 +437,7 @@ export function Content() {
           <SectionTitle
             title="Coin economy"
             hint="Coins are the soft currency between watching and paying. If the faucet outruns the sink, the paywall stops being a paywall."
+            right={<FixedWindow />}
           />
           <div className="flex items-end gap-4 mb-3">
             <div>
@@ -445,6 +479,7 @@ export function Content() {
           <SectionTitle
             title="What people actually buy"
             hint="Purchase mix by product. Coin packs and subscription behave differently — one is a top-up, the other is a commitment."
+            right={<FixedWindow />}
           />
           <div className="space-y-2">
             {iap.map((p) => {
@@ -487,6 +522,16 @@ function Header() {
         The catalogue as a growth asset — which dramas hold viewers, which convert a paywall, and whether UA is buying the right ones.
       </p>
     </div>
+  )
+}
+
+/** Marks a card whose source has no daily grain, so the date picker cannot
+ *  narrow it. Better a visible badge than a control that silently does nothing. */
+function FixedWindow() {
+  return (
+    <span className="text-2xs font-bold text-warn-400 bg-warn-dim rounded px-2 py-1 whitespace-nowrap">
+      window total · not filtered by date
+    </span>
   )
 }
 

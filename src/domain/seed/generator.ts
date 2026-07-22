@@ -68,6 +68,10 @@ export interface Dataset {
   // paywall sits where the curve cliffs, and it is NOT the same episode for
   // every series — that variance is the point.
   series_episode?: { series_name: string; episode: number; viewers: number }[]
+  // Date-grained content facts. Episode COMPLETIONS are total events, which are
+  // additive, so any date range sums correctly — unlike daily unique viewers.
+  series_episode_daily?: { series_name: string; episode: number; date: string; completions: number }[]
+  series_daily?: { series_name: string; date: string; starts: number; episode_completes: number }[]
   // Retention breakdowns. AppsFlyer is the ONLY source of install retention;
   // Mixpanel's curve is deliberately not used, so one number means one thing.
   retention_geo?: { country: string; installs: number; cost: number; revenue: number; d1: number | null; d3: number | null; d7: number | null }[]
