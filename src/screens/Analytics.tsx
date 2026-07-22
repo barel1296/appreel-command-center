@@ -55,7 +55,9 @@ export function Analytics() {
   const [revenueMode, setRevenueMode] = useState<'cohort' | 'activity'>('cohort')
   const [roasView, setRoasView] = useState<'chart' | 'table'>('chart')
 
-  const productCampaigns = ds.campaigns.filter((c) => c.product_id === app.productId)
+  const productCampaigns = ds.campaigns.filter((c) =>
+    c.product_id === app.productId &&
+    (app.platform === 'all' || c.platform === 'both' || c.platform === app.platform))
   const { from: cutoff, to: cutTo } = app.dateRange
   const selectedIds = campaignFilter === 'all'
     ? new Set(productCampaigns.map((c) => c.campaign_id))
@@ -109,10 +111,10 @@ export function Analytics() {
 
   const cohorts = useMemo(() =>
     ds.cohorts.filter((c) => selectedIds.has(c.campaign_id) && c.cohort_date >= cutoff && c.cohort_date <= cutTo),
-    [ds, campaignFilter, cutoff, cutTo])
+    [ds, campaignFilter, cutoff, cutTo, app.platform])
   const spendRows = useMemo(() =>
     ds.spend.filter((r) => selectedIds.has(r.campaign_id) && r.date >= cutoff && r.date <= cutTo),
-    [ds, campaignFilter, cutoff, cutTo])
+    [ds, campaignFilter, cutoff, cutTo, app.platform])
 
   // ── Daily ROAS by cohort: cumulative revenue ÷ spend, per cohort age ──────
   // Each series is one cohort's payback path; the bold line is the weighted
@@ -304,7 +306,7 @@ export function Analytics() {
         color: palette[i % palette.length],
       })),
     }
-  }, [ds, campaignFilter, cutoff, cutTo])
+  }, [ds, campaignFilter, cutoff, cutTo, app.platform])
 
   // ── Metric trend ───────────────────────────────────────────────────────────
   const trendData = useMemo(() => {
@@ -385,7 +387,7 @@ export function Analytics() {
         cpp: sum(coh.map((k) => k.payers)) > 0 ? spend / sum(coh.map((k) => k.payers)) : NaN,
       }
     }).filter((r) => r.installs > 0 || r.spend > 0),
-    [ds, cutoff, cutTo, revenueMode, activityRows])
+    [ds, cutoff, cutTo, revenueMode, activityRows, app.platform])
 
   const creativeBreakdown: BreakRow[] = useMemo(() =>
     ds.creatives.map((cr) => {
@@ -447,7 +449,7 @@ export function Analytics() {
       revenue: e.revenue,
       rpi: safe(e.revenue, e.installs),
     })).filter((r) => r.installs > 0 || r.revenue > 0).sort((a, b) => b.installs - a.installs)
-  }, [ds, cutoff, cutTo, campaignFilter, productCampaigns])
+  }, [ds, cutoff, cutTo, campaignFilter, productCampaigns, app.platform])
 
   const geoColumns: Column<GeoBreakRow>[] = [
     { key: 'country', header: 'Country', render: (r) => <span className="font-semibold">{r.country}</span>, sortValue: (r) => r.country },

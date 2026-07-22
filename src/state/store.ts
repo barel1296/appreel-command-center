@@ -33,6 +33,8 @@ interface AppState {
   dateRange: { from: string; to: string }
   // Empty array = all countries. Persisted like the date range.
   countries: string[]
+  /** Global platform filter. 'all' = blended, matching the old behaviour. */
+  platform: 'all' | 'ios' | 'android'
   revenueSource: 'ad' | 'ad_iap'
   copilotMessages: CopilotMessage[]
   copilotThinking: boolean
@@ -48,6 +50,7 @@ interface AppState {
   switchUser: (userId: string) => void
   setDateRange: (from: string, to: string) => void
   setCountries: (c: string[]) => void
+  setPlatform: (p: 'all' | 'ios' | 'android') => void
   setRevenueSource: (s: 'ad' | 'ad_iap') => void
   campaignMetrics: (campaignId: string) => CampaignMetrics | null
 
@@ -88,6 +91,7 @@ export const useApp = create<AppState>((set, get) => ({
   lastRefreshedAt: null,
   dateRange: loadDateRange(),
   countries: loadJson<string[]>('arc.v1.countries', []),
+  platform: loadJson<'all' | 'ios' | 'android'>('arc.v1.platform', 'all'),
   revenueSource: loadJson<'ad' | 'ad_iap'>('arc.v1.revenueSource', 'ad_iap'),
   copilotMessages: [],
   copilotThinking: false,
@@ -202,6 +206,10 @@ export const useApp = create<AppState>((set, get) => ({
   setCountries: (c) => {
     set({ countries: c })
     try { localStorage.setItem('arc.v1.countries', JSON.stringify(c)) } catch { /* ignore */ }
+  },
+  setPlatform: (p) => {
+    set({ platform: p })
+    try { localStorage.setItem('arc.v1.platform', JSON.stringify(p)) } catch { /* ignore */ }
   },
 
   setRevenueSource: (src) => {

@@ -56,9 +56,13 @@ export interface Dataset {
   // concept that promotes it, which closes the loop between what UA buys and
   // what viewers actually watch and pay for.
   series?: {
-    series_name: string; starts: number; completers: number; episode_completes: number
-    paywall_users: number; unlocks: number; purchases: number; advertised_as: string | null
+    series_name: string; platform: string; starts: number; completers: number | null
+    episode_completes: number; paywall_users: number; unlocks: number | null
+    purchases: number; advertised_as: string | null
   }[]
+  // Date × platform acquisition + retention, so the platform filter and the
+  // date picker both bite on the same facts.
+  platform_daily?: { date: string; platform: string; installs: number; cost: number; revenue: number; d1: number | null; d3: number | null; d7: number | null }[]
   iap?: { product: string; events: number; users: number; kind: string }[]
   // Per-series episode curve: unique viewers completing each episode. The
   // paywall sits where the curve cliffs, and it is NOT the same episode for

@@ -11,7 +11,7 @@
 // spend and catalogue performance are directly comparable.
 // ─────────────────────────────────────────────────────────────────────────────
 import { clsx } from 'clsx'
-import { Clapperboard, Coins, Megaphone, TrendingDown } from 'lucide-react'
+import { Clapperboard, Coins, Megaphone, Smartphone, TrendingDown } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { TrendChart } from '@/components/charts'
 import { Column, DataTable } from '@/components/DataTable'
@@ -24,12 +24,12 @@ const safe = (a: number, b: number) => (b > 0 ? a / b : 0)
 interface SeriesRow {
   name: string
   starts: number
-  completers: number
+  completers: number | null
   epCompletes: number
   epsPerStarter: number
-  holdRate: number
+  holdRate: number | null
   paywallUsers: number
-  unlocks: number
+  unlocks: number | null
   purchases: number
   payRate: number
   advertised: string | null
@@ -41,7 +41,11 @@ export function Content() {
   const ds = app.dataset!
   const [sort, setSort] = useState<'starts' | 'epsPerStarter' | 'payRate'>('starts')
 
-  const series = ds.series ?? []
+  // Platform filter picks the matching grain: 'all' rows carry catalogue-wide
+  // metrics (completers, unlocks) that Mixpanel only reports blended; the
+  // ios/android rows carry the four metrics it does split by os.
+  const platform = app.platform
+  const series = (ds.series ?? []).filter((s) => s.platform === platform)
   const seriesEp = ds.series_episode ?? []
   const [pick, setPick] = useState<string>('')
 
@@ -91,7 +95,7 @@ export function Content() {
     completers: s.completers,
     epCompletes: s.episode_completes,
     epsPerStarter: safe(s.episode_completes, s.starts),
-    holdRate: safe(s.completers, s.starts),
+    holdRate: s.completers === null ? null : safe(s.completers, s.starts),
     paywallUsers: s.paywall_users,
     unlocks: s.unlocks,
     purchases: s.purchases,
@@ -167,9 +171,9 @@ export function Content() {
       ),
       sortValue: (r) => r.epsPerStarter,
     },
-    { key: 'hold', header: 'Hold rate', align: 'right', hideBelow: 'md', render: (r) => <span className="num">{fmtPct(r.holdRate, 0)}</span>, sortValue: (r) => r.holdRate },
+    { key: 'hold', header: 'Hold rate', align: 'right', hideBelow: 'md', render: (r) => <span className="num">{r.holdRate === null ? <span className="text-ink-low">—</span> : fmtPct(r.holdRate, 0)}</span>, sortValue: (r) => r.holdRate ?? -1 },
     { key: 'paywall', header: 'Hit paywall', align: 'right', hideBelow: 'sm', render: (r) => <span className="num">{fmtNum(r.paywallUsers)}</span>, sortValue: (r) => r.paywallUsers },
-    { key: 'unlocks', header: 'Unlocks', align: 'right', hideBelow: 'lg', render: (r) => <span className="num">{fmtNum(r.unlocks)}</span>, sortValue: (r) => r.unlocks },
+    { key: 'unlocks', header: 'Unlocks', align: 'right', hideBelow: 'lg', render: (r) => <span className="num">{r.unlocks === null ? <span className="text-ink-low">—</span> : fmtNum(r.unlocks)}</span>, sortValue: (r) => r.unlocks ?? -1 },
     { key: 'purchases', header: 'Purchases', align: 'right', render: (r) => <span className="num">{r.purchases > 0 ? fmtNum(r.purchases) : <span className="text-ink-low">—</span>}</span>, sortValue: (r) => r.purchases },
     {
       key: 'payRate',
@@ -187,6 +191,17 @@ export function Content() {
   return (
     <div className="animate-fade-in">
       <Header />
+
+      {platform !== 'all' && (
+        <div className="card border-brand-400/30 px-4 py-2.5 mt-4 flex items-center gap-2.5 text-[13px]">
+          <Smartphone size={14} className="text-brand-300 shrink-0" />
+          <span className="text-ink-mid">
+            Showing <strong className="text-ink-hi">{platform === 'ios' ? 'iOS' : 'Android'}</strong> only. Hold rate and
+            unlocks are reported catalogue-wide by the event source and blank out per platform. The episode drop-off curve
+            below is blended across both.
+          </span>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mt-4 mb-4">
         <Kpi label="Series watched" value={fmtNum(series.length)} hint="Distinct series with playback in the selected window." />
@@ -306,6 +321,47 @@ export function Content() {
             <MiniStat label="Wall at" value={active.wall.ep > 0 ? `Ep ${active.wall.ep} → ${active.wall.ep + 1}` : '—'} />
             <MiniStat label="Lost at wall" value={active.wall.drop > 0 ? `−${fmtPct(active.wall.drop, 0)}` : '—'} tone={active.wall.drop >= 0.6 ? 'bad' : active.wall.drop >= 0.45 ? 'warn' : 'ok'} />
             <MiniStat label="Reach Ep 20" value={fmtPct(active.survival, 0)} tone={active.survival >= 0.2 ? 'ok' : 'warn'} />
+          </div>
+
+          <div className="mt-4 overflow-x-auto">
+            <div className="label-2xs mb-2">Episode-by-episode progression · {active.name}</div>
+            <table className="w-full text-[13px] min-w-[520px]">
+              <thead>
+                <tr className="border-b border-line">
+                  {['Episode', 'Viewers', 'Continued from prev.', 'Lost', 'Still watching vs Ep 1'].map((h, i) => (
+                    <th key={h} className={clsx('label-2xs py-2 px-2.5 whitespace-nowrap', i === 0 ? 'text-left' : 'text-right')}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {active.arr.map((p, i) => {
+                  const prev = i > 0 ? active.arr[i - 1].viewers : p.viewers
+                  const cont = prev > 0 ? p.viewers / prev : 1
+                  const lost = prev - p.viewers
+                  const vsFirst = active.peak > 0 ? p.viewers / active.peak : 0
+                  const isWall = p.episode === active.wall.ep + 1 && active.wall.ep > 0
+                  return (
+                    <tr key={p.episode} className={clsx('border-b border-line/60 last:border-0', isWall && 'bg-bad-dim/40')}>
+                      <td className="py-1.5 px-2.5 font-semibold whitespace-nowrap">
+                        Ep {p.episode}
+                        {isWall && <span className="ml-2 text-2xs font-bold text-bad-400">wall</span>}
+                      </td>
+                      <td className="py-1.5 px-2.5 text-right num font-semibold">{fmtNum(p.viewers)}</td>
+                      <td className={clsx('py-1.5 px-2.5 text-right num', i === 0 ? 'text-ink-low' : cont < 0.6 ? 'text-bad-400 font-bold' : cont < 0.85 ? 'text-warn-400' : 'text-ok-400')}>
+                        {i === 0 ? '—' : fmtPct(cont, 0)}
+                      </td>
+                      <td className="py-1.5 px-2.5 text-right num text-ink-mid">{i === 0 ? '—' : lost > 0 ? `−${fmtNum(lost)}` : '0'}</td>
+                      <td className="py-1.5 px-2.5 text-right">
+                        <span className="inline-flex items-center gap-2 justify-end">
+                          <span className="hidden sm:block h-1.5 rounded-full bg-brand-400/70" style={{ width: Math.max(2, vsFirst * 80) }} />
+                          <span className="num text-ink-mid w-10 text-right">{fmtPct(vsFirst, 0)}</span>
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
 
           <div className="mt-4">

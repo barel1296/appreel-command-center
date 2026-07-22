@@ -37,7 +37,7 @@ interface Row {
 export function Retention() {
   const app = useApp()
   const ds = app.dataset!
-  const [tab, setTab] = useState<'creative' | 'country' | 'campaign'>('creative')
+  const [tab, setTab] = useState<'creative' | 'country' | 'campaign' | 'platform'>('creative')
   const { from, to } = app.dateRange
 
   // Campaign slice comes from the cohort facts (install-date grain), so it
@@ -45,8 +45,13 @@ export function Retention() {
   // aggregates and do not — that is stated on the screen rather than hidden.
   const campaignRows: Row[] = useMemo(() => {
     const by = new Map<string, { inst: number; d1: number; d3: number; d7: number; e1: number; e3: number; e7: number; spend: number }>()
+    const plat = new Map(ds.campaigns.map((c) => [c.campaign_id, c.platform]))
     for (const c of ds.cohorts) {
       if (c.cohort_date < from || c.cohort_date > to) continue
+      // 'both' campaigns stay visible under a platform filter — they genuinely
+      // run on both stores and excluding them would hide real spend.
+      const cp = plat.get(c.campaign_id)
+      if (app.platform !== 'all' && cp && cp !== 'both' && cp !== app.platform) continue
       const e = by.get(c.campaign_id) ?? { inst: 0, d1: 0, d3: 0, d7: 0, e1: 0, e3: 0, e7: 0, spend: 0 }
       e.inst += c.installs
       if (c.d1_retained > 0 || c.installs > 0) { e.d1 += c.d1_retained; e.e1 += c.installs }
@@ -72,7 +77,7 @@ export function Retention() {
         d7: e.e7 > 0 ? safe(e.d7, e.e7) : null,
       }
     }).filter((r) => r.installs > 0).sort((a, b) => b.installs - a.installs)
-  }, [ds, from, to])
+  }, [ds, from, to, app.platform])
 
   const countryRows: Row[] = useMemo(() => (ds.retention_geo ?? []).map((g) => ({
     key: g.country,
@@ -92,7 +97,35 @@ export function Retention() {
     d1: c.d1, d3: c.d3, d7: c.d7,
   })), [ds])
 
-  const rows = tab === 'creative' ? creativeRows : tab === 'country' ? countryRows : campaignRows
+  // Platform slice respects BOTH filters: it is stored at date × platform grain.
+  const platformRows: Row[] = useMemo(() => {
+    const by = new Map<string, { inst: number; cost: number; d1n: number; d1d: number; d3n: number; d3d: number; d7n: number; d7d: number }>()
+    for (const r of ds.platform_daily ?? []) {
+      if (r.date < from || r.date > to) continue
+      if (app.platform !== 'all' && r.platform !== app.platform) continue
+      const e = by.get(r.platform) ?? { inst: 0, cost: 0, d1n: 0, d1d: 0, d3n: 0, d3d: 0, d7n: 0, d7d: 0 }
+      e.inst += r.installs; e.cost += r.cost
+      if (r.d1 !== null) { e.d1n += r.d1 * r.installs; e.d1d += r.installs }
+      if (r.d3 !== null) { e.d3n += r.d3 * r.installs; e.d3d += r.installs }
+      if (r.d7 !== null) { e.d7n += r.d7 * r.installs; e.d7d += r.installs }
+      by.set(r.platform, e)
+    }
+    return [...by.entries()].map(([p, e]) => ({
+      key: p,
+      label: p === 'ios' ? 'iOS' : 'Android',
+      sub: `${fmtNum(e.inst)} installs in range`,
+      installs: e.inst,
+      cost: e.cost,
+      d1: e.d1d > 0 ? e.d1n / e.d1d : null,
+      d3: e.d3d > 0 ? e.d3n / e.d3d : null,
+      d7: e.d7d > 0 ? e.d7n / e.d7d : null,
+    })).sort((a, b) => b.installs - a.installs)
+  }, [ds, from, to, app.platform])
+
+  const rows = tab === 'creative' ? creativeRows
+    : tab === 'country' ? countryRows
+    : tab === 'platform' ? platformRows
+    : campaignRows
   const measured = rows.filter((r) => r.d1 !== null && r.installs >= 20)
   const best = [...measured].sort((a, b) => (b.d1 ?? 0) - (a.d1 ?? 0))[0]
   const worst = [...measured].sort((a, b) => (a.d1 ?? 0) - (b.d1 ?? 0))[0]
@@ -120,7 +153,7 @@ export function Retention() {
   const columns: Column<Row>[] = [
     {
       key: 'label',
-      header: tab === 'creative' ? 'Creative' : tab === 'country' ? 'Country' : 'Campaign',
+      header: tab === 'creative' ? 'Creative' : tab === 'country' ? 'Country' : tab === 'platform' ? 'Platform' : 'Campaign',
       render: (r) => (
         <div className="min-w-0">
           <div className="font-semibold text-ink-hi truncate max-w-[260px]">{r.label}</div>
@@ -203,14 +236,22 @@ export function Retention() {
       <Card className="p-4">
         <SectionTitle
           title="Retention by slice"
-          hint="AppsFlyer is the only source used here. Campaign respects the global date range; country and creative are AppsFlyer window aggregates for Jul 8–21."
-          right={<span className="text-2xs font-bold text-brand-300 bg-brand-500/10 rounded px-2 py-1">source: AppsFlyer</span>}
+          hint="AppsFlyer is the only source used here. Campaign and platform respect the date picker and the platform filter; country and creative are stored as window aggregates and do not."
+          right={
+            <div className="flex items-center gap-1.5">
+              {(tab === 'country' || tab === 'creative') && (
+                <span className="text-2xs font-bold text-warn-400 bg-warn-dim rounded px-2 py-1">fixed window · Jul 8–21</span>
+              )}
+              <span className="text-2xs font-bold text-brand-300 bg-brand-500/10 rounded px-2 py-1">source: AppsFlyer</span>
+            </div>
+          }
         />
         <Tabs
           tabs={[
             { id: 'creative' as const, label: 'By creative' },
             { id: 'country' as const, label: 'By country' },
             { id: 'campaign' as const, label: 'By campaign' },
+            { id: 'platform' as const, label: 'By platform' },
           ]}
           active={tab}
           onChange={setTab}
@@ -226,6 +267,8 @@ export function Retention() {
           />
         </div>
         <p className="text-2xs text-ink-low mt-3 leading-relaxed">
+          Country and creative retention are AppsFlyer window aggregates for Jul 8–21 — the date picker and platform filter
+          do not narrow them, and the badge above says so rather than letting the controls look like they applied.
           Blank cells are cohorts too young to have reached that age, never zeros. Mixpanel also measures retention and
           reports roughly half these values — a different identity model and a different definition of a return. That number
           is deliberately excluded here so one metric means one thing.

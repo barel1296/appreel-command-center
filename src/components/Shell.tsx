@@ -14,6 +14,7 @@ import { Avatar } from './ui'
 import { DateRangePicker } from './DateRangePicker'
 import { RefreshButton } from './RefreshButton'
 import { CountryFilter } from './CountryFilter'
+import { PlatformFilter } from './PlatformFilter'
 
 const NAV = [
   { to: '/', label: 'Command Center', icon: LayoutDashboard, end: true },
@@ -141,6 +142,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
           <div className="flex-1" />
 
+          <PlatformFilter />
           <CountryFilter />
           <DateRangePicker />
           <RefreshButton />

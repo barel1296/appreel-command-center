@@ -41,9 +41,13 @@ export function CommandCenter() {
     setWelcomeOpen(false)
   }
 
+  // 'both' campaigns stay under a platform filter — they run on both stores.
+  const inPlatform = (p: DimCampaign['platform']) =>
+    app.platform === 'all' || p === 'both' || p === app.platform
+
   const rows: CampaignRow[] = useMemo(() =>
     ds.campaigns
-      .filter((c) => c.status === 'active')
+      .filter((c) => c.status === 'active' && inPlatform(c.platform))
       .map((c) => {
         const m = app.campaignMetrics(c.campaign_id)!
         return {
@@ -59,7 +63,7 @@ export function CommandCenter() {
           spendSeries: m.daily.slice(-14).map((d) => d.spend),
           spendTrend: m.spend_trend,
         }
-      }), [ds, app])
+      }), [ds, app, app.platform])
 
   const filtered = rows.filter((r) =>
     (channelFilter === 'all' || r.campaign.channel_id === channelFilter) &&
@@ -70,6 +74,15 @@ export function CommandCenter() {
   // users, all days); otherwise derived from cohort curves (cohort_date + age).
   const calendarRevenue = useMemo(() => {
     const map = new Map<string, number>()
+    // Revenue has a real platform grain in platform_daily; prefer it when the
+    // filter is on rather than showing a blended number under an iOS label.
+    if (app.platform !== 'all' && ds.platform_daily?.length) {
+      for (const r of ds.platform_daily) {
+        if (r.platform !== app.platform) continue
+        map.set(r.date, (map.get(r.date) ?? 0) + r.revenue)
+      }
+      return map
+    }
     if (ds.revenue_daily?.length) {
       for (const r of ds.revenue_daily) map.set(r.date, r.revenue_usd)
     } else {
@@ -83,7 +96,7 @@ export function CommandCenter() {
       }
     }
     return map
-  }, [ds])
+  }, [ds, app.platform])
 
   // KPI aggregates: selected range vs the preceding period of equal length
   const { from, to } = app.dateRange
@@ -93,10 +106,19 @@ export function CommandCenter() {
   const kpis = useMemo(() => {
     const inCur = (d: string) => d >= from && d <= to
     const inPrev = (d: string) => d >= prevFrom && d <= prevTo
-    const spendCur = sumBy(ds.spend, (r) => (inCur(r.date) ? r.spend : 0))
-    const spendPrev = sumBy(ds.spend, (r) => (inPrev(r.date) ? r.spend : 0))
-    const instCur = sumBy(ds.cohorts, (r) => (inCur(r.cohort_date) ? r.installs : 0))
-    const instPrev = sumBy(ds.cohorts, (r) => (inPrev(r.cohort_date) ? r.installs : 0))
+    // The platform filter has to bite on the aggregates too, not just the table.
+    const platOf = new Map(ds.campaigns.map((c) => [c.campaign_id, c.platform]))
+    const keep = (cid: string) => {
+      if (app.platform === 'all') return true
+      const p = platOf.get(cid)
+      return !p || p === 'both' || p === app.platform
+    }
+    const spendRows = ds.spend.filter((r) => keep(r.campaign_id))
+    const cohortRows = ds.cohorts.filter((r) => keep(r.campaign_id))
+    const spendCur = sumBy(spendRows, (r) => (inCur(r.date) ? r.spend : 0))
+    const spendPrev = sumBy(spendRows, (r) => (inPrev(r.date) ? r.spend : 0))
+    const instCur = sumBy(cohortRows, (r) => (inCur(r.cohort_date) ? r.installs : 0))
+    const instPrev = sumBy(cohortRows, (r) => (inPrev(r.cohort_date) ? r.installs : 0))
     const revEntries = [...calendarRevenue.entries()]
     const revCur = sumBy(revEntries, ([d, v]) => (inCur(d) ? v : 0))
     const revPrev = sumBy(revEntries, ([d, v]) => (inPrev(d) ? v : 0))
@@ -105,10 +127,10 @@ export function CommandCenter() {
       const inst = sumBy(el, (r) => r.installs)
       return inst > 0 ? sumBy(el, (r) => r.d1_retained) / inst : 0
     }
-    const d1Cur = d1Weighted(ds.cohorts.filter((r) => inCur(r.cohort_date)))
-    const d1Prev = d1Weighted(ds.cohorts.filter((r) => inPrev(r.cohort_date)))
-    const purCur = sumBy(ds.cohorts, (r) => (inCur(r.cohort_date) ? r.payers : 0))
-    const purPrev = sumBy(ds.cohorts, (r) => (inPrev(r.cohort_date) ? r.payers : 0))
+    const d1Cur = d1Weighted(cohortRows.filter((r) => inCur(r.cohort_date)))
+    const d1Prev = d1Weighted(cohortRows.filter((r) => inPrev(r.cohort_date)))
+    const purCur = sumBy(cohortRows, (r) => (inCur(r.cohort_date) ? r.payers : 0))
+    const purPrev = sumBy(cohortRows, (r) => (inPrev(r.cohort_date) ? r.payers : 0))
     return {
       spend: { v: spendCur, d: spendPrev > 0 ? spendCur / spendPrev - 1 : 0 },
       installs: { v: instCur, d: instPrev > 0 ? instCur / instPrev - 1 : 0 },
@@ -121,7 +143,7 @@ export function CommandCenter() {
         d: purPrev > 0 && purCur > 0 && spendPrev > 0 ? spendCur / purCur / (spendPrev / purPrev) - 1 : 0,
       },
     }
-  }, [ds, calendarRevenue, from, to, prevFrom, prevTo])
+  }, [ds, calendarRevenue, from, to, prevFrom, prevTo, app.platform])
 
   // Which measurements this workspace actually has. AppReel currently reports
   // purchase EVENTS through Meta but no revenue VALUE and no MMP/product feed,
@@ -134,8 +156,14 @@ export function CommandCenter() {
   // Spend vs revenue daily trend — both axes on CALENDAR days, selected range
   const trendData = useMemo(() => {
     const byDate = new Map<string, { date: string; spend: number; revenue: number; installs: number }>()
+    const platOf = new Map(ds.campaigns.map((c) => [c.campaign_id, c.platform]))
+    const keep = (cid: string) => {
+      if (app.platform === 'all') return true
+      const p = platOf.get(cid)
+      return !p || p === 'both' || p === app.platform
+    }
     for (const r of ds.spend) {
-      if (r.date < from || r.date > to) continue
+      if (r.date < from || r.date > to || !keep(r.campaign_id)) continue
       const e = byDate.get(r.date) ?? { date: r.date, spend: 0, revenue: 0, installs: 0 }
       e.spend += r.spend
       byDate.set(r.date, e)
@@ -147,13 +175,13 @@ export function CommandCenter() {
       byDate.set(date, e)
     }
     for (const c of ds.cohorts) {
-      if (c.cohort_date < from || c.cohort_date > to) continue
+      if (c.cohort_date < from || c.cohort_date > to || !keep(c.campaign_id)) continue
       const e = byDate.get(c.cohort_date) ?? { date: c.cohort_date, spend: 0, revenue: 0, installs: 0 }
       e.installs += c.installs
       byDate.set(c.cohort_date, e)
     }
     return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
-  }, [ds, calendarRevenue, from, to])
+  }, [ds, calendarRevenue, from, to, app.platform])
 
   const pendingRecs = app.recommendations.filter((r) => r.approval_status === 'proposed').slice(0, 3)
   const urgentAlerts = app.alerts.filter((a) => a.state !== 'resolved' && (a.severity === 'critical' || a.severity === 'high'))

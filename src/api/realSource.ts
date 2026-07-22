@@ -93,8 +93,13 @@ interface EpisodeFunnelRow { step: number; label: string; users: number }
 interface RetentionRow { age: number; eligible: number; retained: number }
 interface MonetizationRow { step: number; label: string; users: number; note: string }
 interface SeriesRow {
-  series_name: string; starts: number; completers: number; episode_completes: number
-  paywall_users: number; unlocks: number; purchases: number; advertised_as: string | null
+  series_name: string; platform: string; starts: number; completers: number | null
+  episode_completes: number; paywall_users: number; unlocks: number | null
+  purchases: number; advertised_as: string | null
+}
+interface PlatformDailyRow {
+  date: string; platform: string; installs: number; cost: number; revenue: number
+  d1: number | null; d3: number | null; d7: number | null
 }
 interface IapRow { product: string; events: number; users: number; kind: string }
 interface CoinRow { metric: string; value: number; note: string }
@@ -123,6 +128,7 @@ export interface RealData {
   seriesEpisode: SeriesEpisodeRow[]
   retGeo: RetGeoRow[]
   retCreative: RetCreativeRow[]
+  platformDaily: PlatformDailyRow[]
   syncs: SyncRow[]
 }
 
@@ -140,7 +146,7 @@ export async function fetchRealData(): Promise<RealData | null> {
     const [campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
            productDaily, episodeFunnel, retention, monetization,
            series, iap, coins, adNetwork,
-           seriesEpisode, retGeo, retCreative, syncs] = await Promise.all([
+           seriesEpisode, retGeo, retCreative, platformDaily, syncs] = await Promise.all([
       rest<CampaignRow[]>('ar_dim_campaign?select=*'),
       rest<SpendRow[]>('ar_fact_spend_daily?select=*&order=date'),
       rest<CohortRow[]>('ar_fact_cohort_daily?select=*&order=cohort_date'),
@@ -159,13 +165,14 @@ export async function fetchRealData(): Promise<RealData | null> {
       rest<SeriesEpisodeRow[]>('ar_fact_series_episode?select=*&order=series_name,episode'),
       rest<RetGeoRow[]>('ar_fact_retention_geo?select=*&order=installs.desc'),
       rest<RetCreativeRow[]>('ar_fact_retention_creative?select=*&order=installs.desc'),
+      rest<PlatformDailyRow[]>('ar_fact_platform_daily?select=*&order=date'),
       rest<SyncRow[]>('ar_sync_log?select=*&order=synced_at.desc&limit=10'),
     ])
     if (campaigns.length === 0) return null
     return {
       campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
       productDaily, episodeFunnel, retention, monetization,
-      series, iap, coins, adNetwork, seriesEpisode, retGeo, retCreative, syncs,
+      series, iap, coins, adNetwork, seriesEpisode, retGeo, retCreative, platformDaily, syncs,
     }
   } catch {
     return null
@@ -450,11 +457,12 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
     })),
     series: real.series.map((r) => ({
       series_name: r.series_name,
+      platform: r.platform,
       starts: Number(r.starts),
-      completers: Number(r.completers),
+      completers: r.completers === null ? null : Number(r.completers),
       episode_completes: Number(r.episode_completes),
       paywall_users: Number(r.paywall_users),
-      unlocks: Number(r.unlocks),
+      unlocks: r.unlocks === null ? null : Number(r.unlocks),
       purchases: Number(r.purchases),
       advertised_as: r.advertised_as,
     })),
@@ -466,6 +474,11 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
     })),
     retention_geo: real.retGeo.map((r) => ({
       country: r.country, installs: Number(r.installs), cost: Number(r.cost), revenue: Number(r.revenue),
+      d1: r.d1 === null ? null : Number(r.d1), d3: r.d3 === null ? null : Number(r.d3), d7: r.d7 === null ? null : Number(r.d7),
+    })),
+    platform_daily: real.platformDaily.map((r) => ({
+      date: r.date, platform: r.platform, installs: Number(r.installs),
+      cost: Number(r.cost), revenue: Number(r.revenue),
       d1: r.d1 === null ? null : Number(r.d1), d3: r.d3 === null ? null : Number(r.d3), d7: r.d7 === null ? null : Number(r.d7),
     })),
     retention_creative: real.retCreative.map((r) => ({
