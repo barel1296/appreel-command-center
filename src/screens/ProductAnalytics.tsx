@@ -3,8 +3,9 @@
 // economics, version adoption, and the level funnel with difficulty
 // diagnostics. Respects the global date range (topbar); live-source only.
 import { clsx } from 'clsx'
-import { Gamepad2 } from 'lucide-react'
+import { Film, Users } from 'lucide-react'
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { AreaTrend, BarsChart, TrendChart } from '@/components/charts'
 import { Card, EmptyState, HelpTip, SectionTitle } from '@/components/ui'
 import { fmtMoney, fmtNum, fmtPct } from '@/lib/format'
@@ -102,7 +103,7 @@ export function ProductAnalytics() {
         <Header />
         <Card className="mt-4 p-4">
           <EmptyState
-            icon={<Gamepad2 size={22} />}
+            icon={<Film size={22} />}
             title="No product event source connected"
             message="AppsFlyer covers acquisition, revenue and retention, but not what happens inside an episode. Mixpanel holds that data — the connection is just pointed at the wrong region. The contract below is what this screen renders once it lands."
           />
@@ -356,17 +357,21 @@ export function ProductAnalytics() {
         </Card>
         <Card className="p-4">
           <SectionTitle
-            title="Retention curve — Mixpanel"
-            hint="Share of installs that started a session exactly N days later, averaged across cohorts in range. This is Mixpanel's identity model."
-            right={<span className="text-2xs font-bold text-warn-400 bg-warn-dim rounded px-1.5 py-0.5">disagrees with AppsFlyer</span>}
+            title="Retention lives on its own screen"
+            hint="AppsFlyer is the single source of truth for install retention, sliced by creative, country and campaign."
           />
-          <TrendChart
-            data={retentionData.filter((r) => r.date !== 'D0')}
-            series={[{ key: 'pct', name: 'Retained %', color: '#c084fc' }]}
-            height={210}
-            fmt={(v) => `${v}%`}
-            yFmt={(v) => `${v}%`}
-          />
+          <div className="border border-dashed border-line-strong rounded-xl p-5 text-center">
+            <Users size={20} className="mx-auto mb-2 text-ink-low" />
+            <div className="text-[13px] font-semibold text-ink-hi mb-1">Measured by AppsFlyer, not here</div>
+            <p className="text-2xs text-ink-mid leading-relaxed max-w-md mx-auto mb-2">
+              Mixpanel also computes a retention curve and it reports roughly half the AppsFlyer values — a different
+              identity model and a different definition of a return. Showing both would make "retention" ambiguous, so
+              this screen does not show one at all.
+            </p>
+            <Link to="/retention" className="text-2xs font-bold text-brand-300 hover:text-brand-400 inline-flex items-center gap-1">
+              Open Retention →
+            </Link>
+          </div>
         </Card>
       </div>
 
@@ -667,9 +672,9 @@ function Header() {
     <div className="flex items-start justify-between gap-3 flex-wrap">
       <div>
         <h1 className="text-xl font-extrabold tracking-tight flex items-center gap-2">
-          <Gamepad2 size={20} className="text-brand-300" /> Product Analytics
+          <Film size={20} className="text-brand-300" /> Product Analytics
         </h1>
-        <p className="text-[13px] text-ink-mid">In-app behavior — retention, engagement, monetization and the episode funnel. Date range: top bar.</p>
+        <p className="text-[13px] text-ink-mid">Viewing behaviour — audience, engagement intensity and the paywall funnel. Retention has its own screen; the catalogue has another.</p>
       </div>
     </div>
   )

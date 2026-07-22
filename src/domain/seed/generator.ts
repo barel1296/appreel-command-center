@@ -60,6 +60,14 @@ export interface Dataset {
     paywall_users: number; unlocks: number; purchases: number; advertised_as: string | null
   }[]
   iap?: { product: string; events: number; users: number; kind: string }[]
+  // Per-series episode curve: unique viewers completing each episode. The
+  // paywall sits where the curve cliffs, and it is NOT the same episode for
+  // every series — that variance is the point.
+  series_episode?: { series_name: string; episode: number; viewers: number }[]
+  // Retention breakdowns. AppsFlyer is the ONLY source of install retention;
+  // Mixpanel's curve is deliberately not used, so one number means one thing.
+  retention_geo?: { country: string; installs: number; cost: number; revenue: number; d1: number | null; d3: number | null; d7: number | null }[]
+  retention_creative?: { creative: string; installs: number; cost: number; d1: number | null; d3: number | null; d7: number | null }[]
   coins?: { metric: string; value: number; note: string }[]
   ad_network?: { network: string; impressions: number; revenue: number }[]
   version_daily?: { date: string; app_version: string; dau: number }[]

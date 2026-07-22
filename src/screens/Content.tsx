@@ -13,6 +13,7 @@
 import { clsx } from 'clsx'
 import { Clapperboard, Coins, Megaphone, TrendingDown } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { TrendChart } from '@/components/charts'
 import { Column, DataTable } from '@/components/DataTable'
 import { Card, EmptyState, HelpTip, SectionTitle } from '@/components/ui'
 import { fmtMoney, fmtNum, fmtPct } from '@/lib/format'
@@ -41,6 +42,33 @@ export function Content() {
   const [sort, setSort] = useState<'starts' | 'epsPerStarter' | 'payRate'>('starts')
 
   const series = ds.series ?? []
+  const seriesEp = ds.series_episode ?? []
+  const [pick, setPick] = useState<string>('')
+
+  // Per-series episode curve + wall detection. The paywall shows up as a cliff,
+  // and it sits at a DIFFERENT episode for every series — that variance is the
+  // most actionable thing on this screen.
+  const curves = useMemo(() => {
+    const by = new Map<string, { episode: number; viewers: number }[]>()
+    for (const r of seriesEp) {
+      by.set(r.series_name, [...(by.get(r.series_name) ?? []), { episode: r.episode, viewers: r.viewers }])
+    }
+    return [...by.entries()].map(([name, pts]) => {
+      const arr = pts.sort((a, b) => a.episode - b.episode)
+      let wall = { ep: 0, drop: 0 }
+      for (let i = 1; i < arr.length; i++) {
+        const prev = arr[i - 1].viewers
+        if (prev < 10) continue
+        const d = (prev - arr[i].viewers) / prev
+        if (d > wall.drop) wall = { ep: arr[i - 1].episode, drop: d }
+      }
+      const peak = arr[0]?.viewers ?? 0
+      const tail = arr[arr.length - 1]?.viewers ?? 0
+      return { name, arr, wall, peak, survival: peak > 0 ? tail / peak : 0 }
+    }).sort((a, b) => b.peak - a.peak)
+  }, [seriesEp])
+
+  const active = curves.find((c) => c.name === pick) ?? curves[0]
   const coins = ds.coins ?? []
   const iap = ds.iap ?? []
 
@@ -250,6 +278,70 @@ export function Content() {
         </p>
       </Card>
 
+      {/* Per-series episode drop-off */}
+      {curves.length > 0 && active && (
+        <Card className="p-4 mb-4">
+          <SectionTitle
+            title="Episode drop-off by series"
+            hint="Unique viewers completing each episode. The cliff is the paywall. It is not the same episode for every series, and where it lands early the series never recovers."
+            right={
+              <select
+                value={active.name}
+                onChange={(e) => setPick(e.target.value)}
+                className="bg-surface-2 border border-line rounded-lg px-2.5 py-1.5 text-[13px] font-semibold max-w-[240px]"
+              >
+                {curves.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+              </select>
+            }
+          />
+          <TrendChart
+            data={active.arr.map((p) => ({ date: `Ep ${p.episode}`, viewers: p.viewers }))}
+            series={[{ key: 'viewers', name: active.name, color: '#5e8dff' }]}
+            height={220}
+            fmt={(v) => fmtNum(v)}
+            yFmt={(v) => fmtNum(v)}
+          />
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+            <MiniStat label="Peak (Ep 1)" value={fmtNum(active.peak)} />
+            <MiniStat label="Wall at" value={active.wall.ep > 0 ? `Ep ${active.wall.ep} → ${active.wall.ep + 1}` : '—'} />
+            <MiniStat label="Lost at wall" value={active.wall.drop > 0 ? `−${fmtPct(active.wall.drop, 0)}` : '—'} tone={active.wall.drop >= 0.6 ? 'bad' : active.wall.drop >= 0.45 ? 'warn' : 'ok'} />
+            <MiniStat label="Reach Ep 20" value={fmtPct(active.survival, 0)} tone={active.survival >= 0.2 ? 'ok' : 'warn'} />
+          </div>
+
+          <div className="mt-4">
+            <div className="label-2xs mb-2">Where every series hits its wall</div>
+            <div className="space-y-1.5">
+              {curves.map((c) => (
+                <button
+                  key={c.name}
+                  onClick={() => setPick(c.name)}
+                  className={clsx('w-full flex items-center gap-3 rounded-lg border px-3 py-1.5 text-left transition-colors',
+                    c.name === active.name ? 'border-brand-400/40 bg-brand-500/10' : 'border-line hover:bg-surface-2')}
+                >
+                  <span className="text-[13px] font-semibold truncate flex-1 min-w-0">{c.name}</span>
+                  <span className="text-2xs text-ink-low shrink-0 num">Ep {c.wall.ep}</span>
+                  <div className="w-24 h-2 bg-surface-2 rounded-full overflow-hidden shrink-0 hidden sm:block">
+                    <div className={clsx('h-full rounded-full', c.wall.drop >= 0.6 ? 'bg-bad-500' : c.wall.drop >= 0.45 ? 'bg-warn-500' : 'bg-ok-500')}
+                      style={{ width: `${Math.min(100, c.wall.drop * 100)}%` }} />
+                  </div>
+                  <span className={clsx('num text-2xs font-bold w-12 text-right shrink-0',
+                    c.wall.drop >= 0.6 ? 'text-bad-400' : c.wall.drop >= 0.45 ? 'text-warn-400' : 'text-ok-400')}>
+                    −{fmtPct(c.wall.drop, 0)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-2xs text-ink-low mt-3 leading-relaxed">
+            The wall moves between episode 2 and episode 9 depending on the series, and the difference decides the title.
+            I Married My Boss walls at episode 8 and only loses 42% — its curve then flattens and it converts 9.3%.
+            My Dirty Little Secret walls at episode 6 and loses 75%; it is the second most-started series in the catalogue
+            and converts 3.4%. Moving a wall later is a content-ops change, not a media buy, and it is almost certainly
+            worth more than any budget shift available on the UA screens.
+          </p>
+        </Card>
+      )}
+
       {/* Coin economy + product mix */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="p-4">
@@ -338,6 +430,18 @@ function Header() {
       <p className="text-[13px] text-ink-mid">
         The catalogue as a growth asset — which dramas hold viewers, which convert a paywall, and whether UA is buying the right ones.
       </p>
+    </div>
+  )
+}
+
+function MiniStat({ label, value, tone }: { label: string; value: string; tone?: 'ok' | 'warn' | 'bad' }) {
+  return (
+    <div className="rounded-lg border border-line px-3 py-2">
+      <div className="label-2xs mb-0.5">{label}</div>
+      <div className={clsx('num text-[15px] font-bold',
+        tone === 'bad' ? 'text-bad-400' : tone === 'warn' ? 'text-warn-400' : tone === 'ok' ? 'text-ok-400' : 'text-ink-hi')}>
+        {value}
+      </div>
     </div>
   )
 }

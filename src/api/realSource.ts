@@ -99,6 +99,9 @@ interface SeriesRow {
 interface IapRow { product: string; events: number; users: number; kind: string }
 interface CoinRow { metric: string; value: number; note: string }
 interface AdNetworkRow { network: string; impressions: number; revenue: number }
+interface SeriesEpisodeRow { series_name: string; episode: number; viewers: number }
+interface RetGeoRow { country: string; installs: number; cost: number; revenue: number; d1: number | null; d3: number | null; d7: number | null }
+interface RetCreativeRow { creative: string; installs: number; cost: number; d1: number | null; d3: number | null; d7: number | null }
 interface SyncRow { source: string; synced_at: string; rows_written: number; note: string }
 
 export interface RealData {
@@ -117,6 +120,9 @@ export interface RealData {
   iap: IapRow[]
   coins: CoinRow[]
   adNetwork: AdNetworkRow[]
+  seriesEpisode: SeriesEpisodeRow[]
+  retGeo: RetGeoRow[]
+  retCreative: RetCreativeRow[]
   syncs: SyncRow[]
 }
 
@@ -133,7 +139,8 @@ export async function fetchRealData(): Promise<RealData | null> {
   try {
     const [campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
            productDaily, episodeFunnel, retention, monetization,
-           series, iap, coins, adNetwork, syncs] = await Promise.all([
+           series, iap, coins, adNetwork,
+           seriesEpisode, retGeo, retCreative, syncs] = await Promise.all([
       rest<CampaignRow[]>('ar_dim_campaign?select=*'),
       rest<SpendRow[]>('ar_fact_spend_daily?select=*&order=date'),
       rest<CohortRow[]>('ar_fact_cohort_daily?select=*&order=cohort_date'),
@@ -149,13 +156,16 @@ export async function fetchRealData(): Promise<RealData | null> {
       rest<IapRow[]>('ar_fact_iap?select=*&order=events.desc'),
       rest<CoinRow[]>('ar_fact_coins?select=*'),
       rest<AdNetworkRow[]>('ar_fact_ad_network?select=*&order=revenue.desc'),
+      rest<SeriesEpisodeRow[]>('ar_fact_series_episode?select=*&order=series_name,episode'),
+      rest<RetGeoRow[]>('ar_fact_retention_geo?select=*&order=installs.desc'),
+      rest<RetCreativeRow[]>('ar_fact_retention_creative?select=*&order=installs.desc'),
       rest<SyncRow[]>('ar_sync_log?select=*&order=synced_at.desc&limit=10'),
     ])
     if (campaigns.length === 0) return null
     return {
       campaigns, spend, cohorts, revenue, geo, creatives, creativeSpend,
       productDaily, episodeFunnel, retention, monetization,
-      series, iap, coins, adNetwork, syncs,
+      series, iap, coins, adNetwork, seriesEpisode, retGeo, retCreative, syncs,
     }
   } catch {
     return null
@@ -432,9 +442,9 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
       attempts: Number(f.users),
       avg_duration_s: 0, // watch-time per episode is not instrumented
     })),
-    retention_curve: real.retention.map((r) => ({
-      age: Number(r.age), eligible: Number(r.eligible), retained: Number(r.retained),
-    })),
+    // retention_curve intentionally NOT populated from Mixpanel: AppsFlyer is
+    // the single source of truth for install retention, so the Product screen
+    // derives its curve from the AppsFlyer cohort facts instead.
     monetization_funnel: real.monetization.map((m) => ({
       step: Number(m.step), label: m.label, users: Number(m.users), note: m.note,
     })),
@@ -451,6 +461,17 @@ export function applyRealData(sim: Dataset, real: RealData): Dataset {
     iap: real.iap.map((r) => ({ product: r.product, events: Number(r.events), users: Number(r.users), kind: r.kind })),
     coins: real.coins.map((r) => ({ metric: r.metric, value: Number(r.value), note: r.note })),
     ad_network: real.adNetwork.map((r) => ({ network: r.network, impressions: Number(r.impressions), revenue: Number(r.revenue) })),
+    series_episode: real.seriesEpisode.map((r) => ({
+      series_name: r.series_name, episode: Number(r.episode), viewers: Number(r.viewers),
+    })),
+    retention_geo: real.retGeo.map((r) => ({
+      country: r.country, installs: Number(r.installs), cost: Number(r.cost), revenue: Number(r.revenue),
+      d1: r.d1 === null ? null : Number(r.d1), d3: r.d3 === null ? null : Number(r.d3), d7: r.d7 === null ? null : Number(r.d7),
+    })),
+    retention_creative: real.retCreative.map((r) => ({
+      creative: r.creative, installs: Number(r.installs), cost: Number(r.cost),
+      d1: r.d1 === null ? null : Number(r.d1), d3: r.d3 === null ? null : Number(r.d3), d7: r.d7 === null ? null : Number(r.d7),
+    })),
     sync_log: real.syncs.map((r) => ({
       source: r.source, synced_at: r.synced_at, rows_written: Number(r.rows_written), note: r.note,
     })),

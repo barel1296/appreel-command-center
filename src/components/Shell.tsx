@@ -3,7 +3,7 @@
 import { clsx } from 'clsx'
 import {
   Activity, AlertTriangle, BarChart3, Bell, BookOpenCheck, BrainCircuit, ClipboardList,
-  Clapperboard, Database, Film, Flame, LayoutDashboard, Menu, Palette, Rocket, Settings2,
+  Clapperboard, Database, Film, Flame, LayoutDashboard, Menu, Palette, Rocket, Settings2, Users,
   Sparkles, Stethoscope, X,
 } from 'lucide-react'
 import { ReactNode, useEffect, useState } from 'react'
@@ -20,6 +20,7 @@ const NAV = [
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/content', label: 'Content', icon: Clapperboard },
   { to: '/product', label: 'Product', icon: Film },
+  { to: '/retention', label: 'Retention', icon: Users },
   { to: '/war-room', label: 'War Room', icon: Flame },
   { to: '/fresh', label: 'Fresh Campaigns', icon: Rocket },
   { to: '/doctor', label: 'Campaign Doctor', icon: Stethoscope },
