@@ -24,9 +24,18 @@ export function deriveAlerts(ds: Dataset, cfg: ProductConfig, recs: Recommendati
         alert_id: `al-conn-${c.source_id}`,
         created_at: now - 5.5 * H,
         severity: 'critical',
-        title: `${c.name}: attribution pipeline degraded`,
-        summary: `Match rate ${fmtPct(c.match_rate)}, freshness ${c.freshness_hours.toFixed(1)}h vs ${c.freshness_sla_hours}h SLA, ` +
-          `${fmtPct(c.undefined_share)} of traffic undefined. All business decisions on this source are blocked by the quality gate.`,
+        // Name the failure the connector actually has. A never-connected source
+        // is not a "degraded pipeline" — calling it one sends the on-call to
+        // debug an integration that was never stood up.
+        title: c.last_sync_ts === 0
+          ? `${c.name}: source not connected`
+          : c.schema_drift
+            ? `${c.name}: schema contract broken`
+            : `${c.name}: pipeline degraded`,
+        summary: c.last_sync_ts === 0
+          ? `${c.name} has never delivered data to this workspace. Every metric that depends on it is withheld, and any decision needing it is blocked by the quality gate.`
+          : `Match rate ${fmtPct(c.match_rate)}, freshness ${c.freshness_hours.toFixed(1)}h vs ${c.freshness_sla_hours}h SLA, ` +
+            `${fmtPct(c.undefined_share)} of traffic undefined. All business decisions on this source are blocked by the quality gate.`,
         category: 'data',
         product_id: 'appreel',
         scope_label: c.name,
